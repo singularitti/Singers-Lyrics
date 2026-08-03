@@ -28,3 +28,18 @@ jobs:
             -destination 'platform=macOS' \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             CODE_SIGNING_ALLOWED=NO
+
+      - name: Package app
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/DerivedData/Build/Products/Debug/Singers Lyrics.app" \
+            "$RUNNER_TEMP/Singers-Lyrics-macOS.zip"
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Singers-Lyrics-macOS-Debug
+          path: ${{ runner.temp }}/Singers-Lyrics-macOS.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
