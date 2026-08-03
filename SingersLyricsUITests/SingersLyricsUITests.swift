@@ -192,6 +192,13 @@ final class SingersLyricsUITests: XCTestCase {
 
         let first = app.buttons["selectLine-0"]
         let third = app.buttons["selectLine-2"]
+        XCTAssertEqual(first.value as? String, "Not selected")
+        first.click()
+        XCTAssertEqual(first.value as? String, "Selected")
+        first.click()
+        XCTAssertEqual(first.value as? String, "Not selected")
+        XCTAssertFalse(app.buttons["deleteSelectedLinesButton"].exists)
+
         first.click()
         XCUIElement.perform(withKeyModifiers: .command) {
             third.click()
@@ -199,9 +206,18 @@ final class SingersLyricsUITests: XCTestCase {
         let bulkDelete = app.buttons["deleteSelectedLinesButton"]
         XCTAssertTrue(bulkDelete.label.contains("2"))
 
-        third.click()
+        let scrollView = identified("lyricsScrollView", in: app)
+        scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).click()
+        XCTAssertFalse(app.buttons["deleteSelectedLinesButton"].exists)
+
+        first.click()
+        XCTAssertTrue(app.buttons["deleteSelectedLinesButton"].exists)
+        app.buttons["playerPlayPauseButton"].click()
+        XCTAssertFalse(app.buttons["deleteSelectedLinesButton"].exists)
+
+        first.click()
         XCUIElement.perform(withKeyModifiers: .shift) {
-            first.click()
+            third.click()
         }
         XCTAssertTrue(bulkDelete.label.contains("3"))
 
@@ -222,6 +238,11 @@ final class SingersLyricsUITests: XCTestCase {
         app.buttons["addLineBelow-0"].click()
         XCTAssertTrue(app.textViews["lyricText-1"].waitForExistence(timeout: 3))
         XCTAssertEqual(app.textViews["lyricText-1"].value as? String, "")
+        XCTAssertEqual(
+            app.buttons["addLineBelow-0"].frame.midY,
+            identified("editLine-0", in: app).frame.maxY,
+            accuracy: 3
+        )
         app.buttons["deleteLine-1"].click()
         XCTAssertEqual(app.textViews["lyricText-1"].value as? String, "Second")
         app.typeKey("z", modifierFlags: .command)
@@ -300,6 +321,13 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Previous line"].exists)
         XCTAssertTrue(identified("timingJogWheel", in: app).exists)
         XCTAssertTrue(identified("shiftedTimingPreview", in: app).exists)
+        firstTiming.click()
+        XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "0.00")
+        app.buttons["stampTimingButton"].click()
+        XCTAssertEqual(identified("syncLine-1", in: app).value as? String, "0.00")
+        XCUIElement.perform(withKeyModifiers: .command) {
+            firstTiming.click()
+        }
         firstTiming = identified("syncLine-0", in: app)
         app.buttons["removeTimingButton"].click()
         XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "No timing")

@@ -26,14 +26,10 @@ struct LyricsEditorView: View {
     @FocusState private var listHasFocus: Bool
 
     private let delayOptions = [0.0, 0.2, 0.3, 0.5, 1.0]
+    private let lineControlOverlap = 10.0
 
     var body: some View {
         VStack(spacing: 0) {
-            if !isSyncing {
-                editingToolbar
-                Divider()
-            }
-
             if isSyncing, playback.state.permissionDenied {
                 permissionBanner
                     .padding(.horizontal, 16)
@@ -71,8 +67,10 @@ struct LyricsEditorView: View {
                                 .id(line.id)
                         }
                     }
-                    .padding(16)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 16)
                 }
+                .accessibilityIdentifier("lyricsScrollView")
                 .onChange(of: targetID) { _, id in
                     guard isSyncing, let id else { return }
                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -86,6 +84,14 @@ struct LyricsEditorView: View {
             .focused($listHasFocus)
             .onTapGesture {
                 listHasFocus = true
+                if !isSyncing {
+                    clearLineSelection()
+                }
+            }
+            .onChange(of: listHasFocus) { _, hasFocus in
+                if !hasFocus, !isSyncing {
+                    clearLineSelection()
+                }
             }
             .onKeyPress(keys: ["a"], phases: .down) { press in
                 guard press.modifiers.contains(.command) else { return .ignored }
@@ -113,13 +119,31 @@ struct LyricsEditorView: View {
                 onCancelSync()
                 return .handled
             }
-
-            if isSyncing {
-                Divider()
-                timingPanel
-            }
         }
         .background(.background)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !isSyncing {
+                editingToolbar
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .padding(.bottom, 6)
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if isSyncing {
+                timingPanel
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
+                    .padding(.bottom, 10)
+            }
+        }
+        .background {
+            if !isSyncing {
+                EditPanelOutsideClickMonitor {
+                    clearLineSelection()
+                }
+            }
+        }
         .onAppear {
             if isSyncing {
                 beginSyncing()
@@ -179,7 +203,8 @@ struct LyricsEditorView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.bar)
+        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
     }
 
     private var visibleLines: [LyricLine] {
@@ -188,13 +213,14 @@ struct LyricsEditorView: View {
 
     @ViewBuilder
     private func lineRow(line: LyricLine, index: Int) -> some View {
-        VStack(spacing: 3) {
-            lineCard(line: line, index: index)
-
-            if !isSyncing {
-                lineControls(line: line, index: index)
+        lineCard(line: line, index: index)
+            .overlay(alignment: .bottom) {
+                if !isSyncing {
+                    lineControls(line: line, index: index)
+                        .offset(y: lineControlOverlap)
+                }
             }
-        }
+            .padding(.bottom, isSyncing ? 0 : lineControlOverlap)
     }
 
     @ViewBuilder
@@ -209,7 +235,12 @@ struct LyricsEditorView: View {
                     .frame(width: 16, height: 34, alignment: .center)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Select lyric line \(index + 1)")
+            .accessibilityLabel(
+                selectedLineIDs.contains(line.id)
+                    ? "Deselect lyric line \(index + 1)"
+                    : "Select lyric line \(index + 1)"
+            )
+            .accessibilityValue(selectedLineIDs.contains(line.id) ? "Selected" : "Not selected")
             .accessibilityIdentifier("selectLine-\(index)")
 
             VStack(alignment: .leading, spacing: 2) {
@@ -306,10 +337,20 @@ struct LyricsEditorView: View {
                 .stroke(selectedLineIDs.contains(line.id) ? Color.accentColor.opacity(0.45) : .clear)
         }
         .contentShape(Rectangle())
-        .onTapGesture {
-            guard isSyncing else { return }
-            selectLine(line.id, modifiers: NSEvent.modifierFlags)
-            listHasFocus = true
+        .overlay {
+            if isSyncing {
+                HStack(spacing: 0) {
+                    Color.clear
+                        .frame(width: 36)
+                        .allowsHitTesting(false)
+
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            handleSyncLineTap(line.id, modifiers: NSEvent.modifierFlags)
+                        }
+                }
+            }
         }
         .accessibilityElement(children: isSyncing ? .combine : .contain)
         .accessibilityIdentifier(isSyncing ? "syncLine-\(index)" : "editLine-\(index)")
@@ -466,7 +507,7 @@ struct LyricsEditorView: View {
             .scrollIndicators(.hidden)
             .accessibilityIdentifier("shiftedTimingPreview")
 
-            Text("Space stamps and advances · drag, scroll, or swipe over the wheel · Command/Shift-click or Command-A selects")
+            Text("Click a lyric or press Space to stamp and advance · use the circles with Command/Shift for selection")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
@@ -474,7 +515,8 @@ struct LyricsEditorView: View {
         .controlSize(.small)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(.regularMaterial)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .shadow(color: .black.opacity(0.14), radius: 16, y: 5)
     }
 
     private var syncStatus: String {
@@ -572,23 +614,48 @@ struct LyricsEditorView: View {
             targetID = lineID
             resetShiftPreview()
         }
-        if modifiers.contains(.command) {
+        if modifiers.contains(.shift),
+           let anchor = selectionAnchor,
+           let start = visibleLines.firstIndex(where: { $0.id == anchor }),
+           let end = visibleLines.firstIndex(where: { $0.id == lineID }) {
+            let range = min(start, end)...max(start, end)
+            selectedLineIDs = Set(range.map { visibleLines[$0].id })
+        } else if modifiers.contains(.command) {
             if selectedLineIDs.contains(lineID) {
                 selectedLineIDs.remove(lineID)
             } else {
                 selectedLineIDs.insert(lineID)
             }
-            selectionAnchor = lineID
-        } else if modifiers.contains(.shift),
-                  let anchor = selectionAnchor,
-                  let start = visibleLines.firstIndex(where: { $0.id == anchor }),
-                  let end = visibleLines.firstIndex(where: { $0.id == lineID }) {
-            let range = min(start, end)...max(start, end)
-            selectedLineIDs = Set(range.map { visibleLines[$0].id })
+            selectionAnchor = selectedLineIDs.contains(lineID) ? lineID : selectedLineIDs.first
+        } else if !isSyncing, selectedLineIDs.contains(lineID) {
+            selectedLineIDs.remove(lineID)
+            if selectionAnchor == lineID {
+                selectionAnchor = selectedLineIDs.first
+            }
         } else {
             selectedLineIDs = [lineID]
             selectionAnchor = lineID
         }
+    }
+
+    private func handleSyncLineTap(_ lineID: UUID, modifiers: NSEvent.ModifierFlags) {
+        if modifiers.contains(.command) || modifiers.contains(.shift) {
+            selectLine(lineID, modifiers: modifiers)
+        } else {
+            targetID = lineID
+            selectedLineIDs = [lineID]
+            selectionAnchor = lineID
+            resetShiftPreview()
+            stampCurrentLine(lineID: lineID)
+        }
+        listHasFocus = true
+    }
+
+    private func clearLineSelection() {
+        guard !selectedLineIDs.isEmpty || selectionAnchor != nil else { return }
+        selectedLineIDs.removeAll()
+        selectionAnchor = nil
+        resetShiftPreview()
     }
 
     private func deleteSelectedLines() {
@@ -721,9 +788,11 @@ struct LyricsEditorView: View {
         }
     }
 
-    private func stampCurrentLine() {
+    private func stampCurrentLine(lineID: UUID? = nil) {
         guard !timingLines.isEmpty else { return }
-        let index = targetIndex
+        let index = lineID.flatMap { id in
+            timingLines.firstIndex(where: { $0.id == id })
+        } ?? targetIndex
         timingLines[index].timestampSeconds = max(0, playback.interpolatedPosition() - delay)
         let nextIndex = min(index + 1, timingLines.count - 1)
         let nextID = timingLines[nextIndex].id
@@ -784,6 +853,72 @@ struct LyricsEditorView: View {
         var index: Int
         var original: Double
         var current: Double?
+    }
+}
+
+private struct EditPanelOutsideClickMonitor: NSViewRepresentable {
+    let onOutsideClick: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onOutsideClick: onOutsideClick)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = PassthroughTrackingView()
+        context.coordinator.trackedView = view
+        context.coordinator.installMonitor()
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.onOutsideClick = onOutsideClick
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.removeMonitor()
+    }
+
+    @MainActor
+    final class Coordinator {
+        weak var trackedView: NSView?
+        var onOutsideClick: () -> Void
+        private var monitor: Any?
+
+        init(onOutsideClick: @escaping () -> Void) {
+            self.onOutsideClick = onOutsideClick
+        }
+
+        func installMonitor() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+                self?.handle(event)
+                return event
+            }
+        }
+
+        func removeMonitor() {
+            guard let monitor else { return }
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+
+        private func handle(_ event: NSEvent) {
+            guard let trackedView, let trackedWindow = trackedView.window else { return }
+            guard event.window === trackedWindow else {
+                onOutsideClick()
+                return
+            }
+            let location = trackedView.convert(event.locationInWindow, from: nil)
+            if !trackedView.bounds.contains(location) {
+                onOutsideClick()
+            }
+        }
+    }
+
+    private final class PassthroughTrackingView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            nil
+        }
     }
 }
 
