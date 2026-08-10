@@ -18,7 +18,6 @@ final class AppModel {
 
     var library = LibraryDocument()
     var selectedSongID: UUID?
-    var syncSongID: UUID?
     var isCreatingSong = false
     private(set) var isLoaded = false
     private(set) var autosaveDisabled = false
@@ -50,9 +49,6 @@ final class AppModel {
     }
 
     func selectSong(_ id: UUID?) {
-        if syncSongID != id {
-            syncSongID = nil
-        }
         selectedSongID = id
         if let id {
             UserDefaults.standard.set(id.uuidString, forKey: PreferenceKey.selectedSong)
@@ -94,9 +90,6 @@ final class AppModel {
     }
 
     func deleteSong(_ id: UUID) {
-        if syncSongID == id {
-            syncSongID = nil
-        }
         library.songs.removeAll { $0.id == id }
         if selectedSongID == id {
             selectSong(library.songs.first?.id)
@@ -111,12 +104,6 @@ final class AppModel {
         let song = library.songs.remove(at: source)
         library.songs.insert(song, at: destination)
         markChanged()
-    }
-
-    func applySynchronizedLines(_ lines: [LyricLine], to songID: UUID) {
-        guard var song = song(withID: songID) else { return }
-        song.lines = lines
-        replaceSong(song)
     }
 
     func flush() async {

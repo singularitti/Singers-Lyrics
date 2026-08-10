@@ -45,9 +45,10 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertEqual(linkField.value as? String, link)
         linkField.typeKey(.tab, modifierFlags: [])
         app.buttons["saveAppleMusicLinkButton"].click()
-        let editor = app.buttons["syncTimingButton"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 3))
-        return editor
+        let workspace = identified("lyricsWorkspaceView", in: app)
+        XCTAssertTrue(workspace.waitForExistence(timeout: 3))
+        XCTAssertTrue(identified("timingPanel", in: app).exists)
+        return workspace
     }
 
     @MainActor
@@ -72,7 +73,8 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertTrue(editor.waitForExistence(timeout: 3))
         replaceText(in: editor, with: source)
         app.buttons["confirmLyricsImportButton"].click()
-        XCTAssertTrue(app.buttons["syncTimingButton"].waitForExistence(timeout: 3))
+        XCTAssertTrue(editor.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(identified("lyricsWorkspaceView", in: app).exists)
     }
 
     @MainActor
@@ -87,7 +89,9 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Looked Up Song | Looked Up Singer"].exists)
         XCTAssertFalse(app.textFields["songTitleField"].exists)
         XCTAssertFalse(app.textFields["songArtistField"].exists)
-        XCTAssertTrue(app.buttons["syncTimingButton"].exists)
+        XCTAssertTrue(identified("lyricsWorkspaceView", in: app).exists)
+        XCTAssertTrue(identified("timingPanel", in: app).exists)
+        XCTAssertFalse(app.buttons["syncTimingButton"].exists)
         XCTAssertTrue(app.textViews["lyricText-0"].exists)
         XCTAssertTrue(identified("playerView", in: app).exists)
     }
@@ -113,7 +117,7 @@ final class SingersLyricsUITests: XCTestCase {
         let previewToggle = app.buttons["togglePreviewPanelButton"]
         previewToggle.click()
         XCTAssertTrue(identified("playerView", in: app).waitForNonExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["syncTimingButton"].exists)
+        XCTAssertTrue(identified("timingPanel", in: app).exists)
         previewToggle.click()
         XCTAssertTrue(identified("playerView", in: app).waitForExistence(timeout: 3))
 
@@ -124,10 +128,12 @@ final class SingersLyricsUITests: XCTestCase {
         let editorToggle = app.buttons["toggleEditorPanelButton"]
         editorToggle.click()
         XCTAssertTrue(app.textViews["lyricText-0"].waitForNonExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["syncTimingButton"].exists)
+        XCTAssertTrue(identified("timingPanel", in: app).waitForNonExistence(timeout: 3))
+        XCTAssertTrue(identified("lyricsWorkspaceView", in: app).waitForNonExistence(timeout: 3))
         XCTAssertTrue(identified("playerView", in: app).exists)
         editorToggle.click()
         XCTAssertTrue(app.textViews["lyricText-0"].waitForExistence(timeout: 3))
+        XCTAssertTrue(identified("timingPanel", in: app).waitForExistence(timeout: 3))
     }
 
     @MainActor
@@ -135,8 +141,12 @@ final class SingersLyricsUITests: XCTestCase {
         let app = launchApp()
         _ = createSong(in: app)
 
+        XCTAssertTrue(identified("timingPanel", in: app).exists)
+        XCTAssertFalse(identified("textEditingPanel", in: app).exists)
         let firstLine = app.textViews["lyricText-0"]
         firstLine.click()
+        XCTAssertTrue(identified("textEditingPanel", in: app).waitForExistence(timeout: 3))
+        XCTAssertTrue(identified("lyricLine-0", in: app).isSelected)
         firstLine.typeText("First")
         firstLine.typeKey("a", modifierFlags: .command)
 
@@ -165,8 +175,12 @@ final class SingersLyricsUITests: XCTestCase {
         let colorPicker = identified("textColorPicker", in: app)
         XCTAssertTrue(colorPicker.exists)
         colorPicker.click()
-        XCTAssertTrue(app.windows["Colors"].waitForExistence(timeout: 3))
+        let colorsWindow = app.windows["Colors"]
+        XCTAssertTrue(colorsWindow.waitForExistence(timeout: 3))
+        colorsWindow.buttons[XCUIIdentifierCloseWindow].click()
+        XCTAssertTrue(colorsWindow.waitForNonExistence(timeout: 3))
 
+        firstLine.click()
         firstLine.typeKey(XCUIKeyboardKey.end, modifierFlags: [])
         firstLine.typeKey(XCUIKeyboardKey.return, modifierFlags: [])
         let secondLine = app.textViews["lyricText-1"]
@@ -181,10 +195,15 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertTrue(symbol.waitForExistence(timeout: 3))
         symbol.click()
         XCTAssertTrue((secondLine.value as? String)?.contains("Second♪") == true)
+
+        identified("lineTime-1", in: app).click()
+        XCTAssertTrue(identified("textEditingPanel", in: app).waitForNonExistence(timeout: 3))
+        XCTAssertTrue(identified("timingPanel", in: app).exists)
+        XCTAssertTrue(identified("lyricLine-1", in: app).isSelected)
     }
 
     @MainActor
-    func testLRCImportMultiSelectionAndBulkDeletion() {
+    func testLRCImportUnifiedRowSelectionAndBulkDeletion() {
         let app = launchApp()
         _ = createSong(in: app)
         importLyrics("[00:01.20] First\n[00:02.30] Second\nPlain third", in: app)
@@ -193,42 +212,59 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertEqual(app.textViews["lyricText-1"].value as? String, "Second")
         XCTAssertEqual(app.textViews["lyricText-2"].value as? String, "Plain third")
 
-        let first = app.buttons["selectLine-0"]
-        let third = app.buttons["selectLine-2"]
-        XCTAssertFalse(identified("boldButton", in: app).exists)
-        XCTAssertEqual(first.value as? String, "Not selected")
-        first.click()
-        XCTAssertEqual(first.value as? String, "Selected")
-        XCTAssertTrue(identified("boldButton", in: app).waitForExistence(timeout: 3))
-        XCTAssertEqual(app.buttons["deleteSelectedLinesButton"].label, "Delete 1 line")
-        first.click()
-        XCTAssertEqual(first.value as? String, "Not selected")
-        XCTAssertFalse(app.buttons["deleteSelectedLinesButton"].exists)
-        XCTAssertFalse(identified("boldButton", in: app).exists)
+        var firstRow = identified("lyricLine-0", in: app)
+        let thirdRow = identified("lyricLine-2", in: app)
+        let firstTime = identified("lineTime-0", in: app)
+        let thirdTime = identified("lineTime-2", in: app)
+        let firstLine = app.textViews["lyricText-0"]
+        let firstAnnotation = app.textFields["annotation-0"]
 
-        first.click()
+        XCTAssertFalse(identified("selectLine-0", in: app).exists)
+        XCTAssertFalse(identified("selectLine-2", in: app).exists)
+        XCTAssertFalse(firstRow.isSelected)
+        XCTAssertFalse(thirdRow.isSelected)
+        XCTAssertFalse(identified("boldButton", in: app).exists)
+        XCTAssertLessThanOrEqual(firstRow.frame.height, 70)
+        XCTAssertLessThanOrEqual(firstLine.frame.minX - firstRow.frame.minX, 12)
+        XCTAssertLessThanOrEqual(firstAnnotation.frame.minY - firstRow.frame.minY, 8)
+        // The row accessibility frame includes the 10-point clearance reserved
+        // for the add/delete capsule that overlaps the card's lower edge.
+        XCTAssertLessThanOrEqual(firstRow.frame.maxY - firstLine.frame.maxY, 18)
+
+        firstTime.click()
+        XCTAssertTrue(firstRow.isSelected)
+        XCTAssertFalse(identified("textEditingPanel", in: app).exists)
+        XCTAssertTrue(identified("clearTimingSelectionButton", in: app).isEnabled)
+        identified("clearTimingSelectionButton", in: app).click()
+        XCTAssertFalse(firstRow.isSelected)
+
+        firstTime.click()
         XCUIElement.perform(withKeyModifiers: .command) {
-            third.click()
+            thirdTime.click()
         }
-        let bulkDelete = app.buttons["deleteSelectedLinesButton"]
+        XCTAssertTrue(firstRow.isSelected)
+        XCTAssertTrue(thirdRow.isSelected)
+        XCTAssertTrue(identified("lineSelectionPanel", in: app).waitForExistence(timeout: 3))
+        let bulkDelete = identified("deleteSelectedLinesButton", in: app)
         XCTAssertEqual(bulkDelete.label, "Delete 2 lines")
 
-        let scrollView = identified("lyricsScrollView", in: app)
-        scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).click()
-        XCTAssertFalse(app.buttons["deleteSelectedLinesButton"].exists)
+        identified("clearTimingSelectionButton", in: app).click()
+        XCTAssertTrue(identified("lineSelectionPanel", in: app).waitForNonExistence(timeout: 3))
+        XCTAssertFalse(firstRow.isSelected)
+        XCTAssertFalse(thirdRow.isSelected)
 
-        first.click()
-        XCTAssertTrue(app.buttons["deleteSelectedLinesButton"].exists)
+        firstTime.click()
         app.buttons["playerPlayPauseButton"].click()
-        XCTAssertFalse(app.buttons["deleteSelectedLinesButton"].exists)
+        XCTAssertFalse(firstRow.isSelected)
 
-        first.click()
+        firstTime.click()
         XCUIElement.perform(withKeyModifiers: .shift) {
-            third.click()
+            thirdTime.click()
         }
+        XCTAssertTrue(identified("lyricLine-1", in: app).isSelected)
         XCTAssertEqual(bulkDelete.label, "Delete 3 lines")
 
-        first.click()
+        firstTime.click()
         app.typeKey("a", modifierFlags: .command)
         XCTAssertEqual(bulkDelete.label, "Delete 3 lines")
         bulkDelete.click()
@@ -240,11 +276,13 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertEqual(app.textViews["lyricText-0"].value as? String, "First")
         XCTAssertEqual(app.textViews["lyricText-2"].value as? String, "Plain third")
 
-        let firstRow = identified("editLine-0", in: app)
+        identified("clearTimingSelectionButton", in: app).click()
+        firstRow = identified("lyricLine-0", in: app)
         XCTAssertFalse(app.buttons["addLineBelow-0"].exists)
         firstRow.hover()
-        XCTAssertTrue(app.buttons["addLineBelow-0"].waitForExistence(timeout: 3))
-        app.buttons["addLineBelow-0"].click()
+        let addButton = app.buttons["addLineBelow-0"]
+        XCTAssertTrue(addButton.waitForExistence(timeout: 3))
+        addButton.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         XCTAssertTrue(app.textViews["lyricText-1"].waitForExistence(timeout: 3))
         XCTAssertEqual(app.textViews["lyricText-1"].value as? String, "")
         firstRow.hover()
@@ -253,15 +291,16 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertTrue(lineControls.exists)
         XCTAssertEqual(
             lineControls.frame.midY,
-            identified("editLine-0", in: app).frame.maxY - lineControls.frame.height / 2,
+            identified("lyricLine-0", in: app).frame.maxY - lineControls.frame.height / 2,
             accuracy: 3
         )
-        let secondRow = identified("editLine-1", in: app)
+        let secondRow = identified("lyricLine-1", in: app)
         XCTAssertGreaterThan(secondRow.frame.minY, lineControls.frame.maxY)
         XCTAssertLessThanOrEqual(secondRow.frame.minY - lineControls.frame.maxY, 6)
         secondRow.hover()
-        XCTAssertTrue(app.buttons["deleteLine-1"].waitForExistence(timeout: 3))
-        app.buttons["deleteLine-1"].click()
+        let deleteButton = app.buttons["deleteLine-1"]
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 3))
+        deleteButton.click()
         XCTAssertEqual(app.textViews["lyricText-1"].value as? String, "Second")
         app.typeKey("z", modifierFlags: .command)
         XCTAssertEqual(app.textViews["lyricText-1"].value as? String, "")
@@ -311,25 +350,23 @@ final class SingersLyricsUITests: XCTestCase {
     }
 
     @MainActor
-    func testTimingChangesCanBeCancelledOrSaved() {
+    func testTextEditingAndLiveTimingChangesCoexistAndUndo() {
         let app = launchApp()
         _ = createSong(in: app)
         importLyrics("[00:01.20] First\n[00:02.30] Second", in: app)
 
-        let editFrame = identified("editLine-0", in: app).frame
-        XCTAssertGreaterThan(identified("lineTime-0", in: app).frame.midX, editFrame.midX)
-        app.buttons["syncTimingButton"].click()
-        XCTAssertTrue(identified("syncView", in: app).waitForExistence(timeout: 3))
+        let firstRow = identified("lyricLine-0", in: app)
+        let firstLine = app.textViews["lyricText-0"]
+        XCTAssertTrue(identified("lyricsWorkspaceView", in: app).exists)
+        XCTAssertTrue(identified("timingPanel", in: app).exists)
+        XCTAssertTrue(firstLine.exists)
+        XCTAssertFalse(app.buttons["syncTimingButton"].exists)
         XCTAssertTrue(identified("songList", in: app).exists)
         XCTAssertTrue(identified("songRow-0", in: app).isHittable)
         XCTAssertTrue(identified("playerView", in: app).exists)
         XCTAssertTrue(app.buttons["playerPlayPauseButton"].isHittable)
-        XCTAssertFalse(app.textViews["lyricText-0"].exists)
-        var firstTiming = identified("syncLine-0", in: app)
-        XCTAssertEqual(firstTiming.frame.minX, editFrame.minX, accuracy: 1)
-        XCTAssertEqual(firstTiming.frame.width, editFrame.width, accuracy: 1)
-        XCTAssertGreaterThan(identified("lineTime-0", in: app).frame.midX, firstTiming.frame.midX)
-        XCTAssertEqual(firstTiming.value as? String, "1.20")
+        XCTAssertGreaterThan(identified("lineTime-0", in: app).frame.midX, firstRow.frame.midX)
+        XCTAssertEqual(identified("lineTime-0", in: app).label, "0:01")
         XCTAssertFalse(app.buttons["shiftMinusOneButton"].exists)
         XCTAssertFalse(app.buttons["shiftMinusTenthButton"].exists)
         XCTAssertFalse(app.buttons["shiftPlusTenthButton"].exists)
@@ -347,35 +384,41 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertLessThanOrEqual(wheel.frame.width, 140)
         XCTAssertLessThanOrEqual(oldTime.frame.maxX, wheel.frame.minX)
         XCTAssertGreaterThanOrEqual(newTime.frame.minX, wheel.frame.maxX)
-        firstTiming.click()
-        XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "1.20")
-        XCTAssertEqual(identified("syncLine-1", in: app).value as? String, "2.30")
+
+        firstLine.click()
+        firstLine.typeKey(.end, modifierFlags: [])
+        firstLine.typeKey(.space, modifierFlags: [])
+        firstLine.typeText("X")
+        XCTAssertEqual(firstLine.value as? String, "First X")
+        XCTAssertEqual(identified("lineTime-0", in: app).label, "0:01")
+        XCTAssertTrue(identified("textEditingPanel", in: app).waitForExistence(timeout: 3))
+        XCTAssertTrue(firstRow.isSelected)
+
+        identified("lineTime-0", in: app).click()
+        XCTAssertTrue(identified("textEditingPanel", in: app).waitForNonExistence(timeout: 3))
+        XCTAssertTrue(firstRow.isSelected)
         app.buttons["stampTimingButton"].click()
-        XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "0.00")
-        XCTAssertEqual(identified("syncLine-1", in: app).value as? String, "2.30")
-        app.buttons["stampTimingButton"].click()
-        XCTAssertEqual(identified("syncLine-1", in: app).value as? String, "0.00")
-        XCUIElement.perform(withKeyModifiers: .command) {
-            firstTiming.click()
-        }
-        firstTiming = identified("syncLine-0", in: app)
+        XCTAssertEqual(identified("lineTime-0", in: app).label, "0:00")
+        XCTAssertEqual(identified("lineTime-1", in: app).label, "0:02")
+        XCTAssertTrue(identified("lyricLine-1", in: app).isSelected)
+
+        app.typeKey("z", modifierFlags: .command)
+        XCTAssertEqual(identified("lineTime-0", in: app).label, "0:01")
+        XCTAssertTrue(identified("lyricLine-0", in: app).isSelected)
+
         app.buttons["removeTimingButton"].click()
-        XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "No timing")
-        app.buttons["cancelTimingButton"].click()
+        XCTAssertEqual(identified("lineTime-0", in: app).label, "––:––")
+        app.typeKey("z", modifierFlags: .command)
         XCTAssertEqual(identified("lineTime-0", in: app).label, "0:01")
 
-        app.buttons["syncTimingButton"].click()
-        XCTAssertTrue(identified("syncView", in: app).waitForExistence(timeout: 3))
-        firstTiming = identified("syncLine-0", in: app)
-        XCTAssertEqual(firstTiming.value as? String, "1.20")
-        app.buttons["removeTimingButton"].click()
-        app.buttons["syncTimingButton"].click()
-        XCTAssertTrue(identified("lyricsEditorView", in: app).waitForExistence(timeout: 3))
-        XCTAssertEqual(identified("lineTime-0", in: app).label, "––:––")
+        identified("clearTimingSelectionButton", in: app).click()
+        XCTAssertFalse(identified("lyricLine-0", in: app).isSelected)
+        XCTAssertFalse(app.buttons["stampTimingButton"].isEnabled)
+        XCTAssertFalse(app.buttons["removeTimingButton"].isEnabled)
     }
 
     @MainActor
-    func testSyncClickSelectsTheExactLineBeforeStamping() {
+    func testUnifiedRowSelectionTargetsTheExactLineBeforeStamping() {
         let app = launchApp()
         _ = createSong(in: app)
         importLyrics(
@@ -383,25 +426,122 @@ final class SingersLyricsUITests: XCTestCase {
             in: app
         )
 
-        app.buttons["syncTimingButton"].click()
-        XCTAssertTrue(identified("syncView", in: app).waitForExistence(timeout: 3))
-
-        identified("syncLine-1", in: app).click()
-        XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "1.20")
-        XCTAssertEqual(identified("syncLine-1", in: app).value as? String, "2.30")
-        XCTAssertEqual(identified("syncLine-2", in: app).value as? String, "3.40")
+        identified("lineTime-1", in: app).click()
+        XCTAssertFalse(identified("lyricLine-0", in: app).isSelected)
+        XCTAssertTrue(identified("lyricLine-1", in: app).isSelected)
+        XCTAssertFalse(identified("lyricLine-2", in: app).isSelected)
+        XCTAssertEqual(identified("lineTime-0", in: app).label, "0:01")
+        XCTAssertEqual(identified("lineTime-1", in: app).label, "0:02")
+        XCTAssertEqual(identified("lineTime-2", in: app).label, "0:03")
 
         app.buttons["stampTimingButton"].click()
-        XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "1.20")
-        XCTAssertEqual(identified("syncLine-1", in: app).value as? String, "0.00")
-        XCTAssertEqual(identified("syncLine-2", in: app).value as? String, "3.40")
+        XCTAssertEqual(identified("lineTime-0", in: app).label, "0:01")
+        XCTAssertEqual(identified("lineTime-1", in: app).label, "0:00")
+        XCTAssertEqual(identified("lineTime-2", in: app).label, "0:03")
+        XCTAssertTrue(identified("lyricLine-2", in: app).isSelected)
 
-        identified("syncLine-0", in: app).click()
-        XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "1.20")
+        identified("lineTime-0", in: app).click()
+        XCTAssertTrue(identified("lyricLine-0", in: app).isSelected)
+        XCTAssertEqual(identified("lineTime-0", in: app).label, "0:01")
         app.buttons["stampTimingButton"].click()
-        XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "0.00")
-        XCTAssertEqual(identified("syncLine-1", in: app).value as? String, "0.00")
-        XCTAssertEqual(identified("syncLine-2", in: app).value as? String, "3.40")
+        XCTAssertEqual(identified("lineTime-0", in: app).label, "0:00")
+        XCTAssertEqual(identified("lineTime-1", in: app).label, "0:00")
+        XCTAssertEqual(identified("lineTime-2", in: app).label, "0:03")
+    }
+
+    @MainActor
+    func testTimeSyncPanelAdaptsToNarrowEditorColumn() {
+        let app = launchApp()
+        _ = createSong(in: app)
+        importLyrics("[00:01.20] First\n[00:02.30] Second", in: app)
+
+        XCTAssertTrue(identified("lyricsWorkspaceView", in: app).exists)
+        XCTAssertFalse(app.buttons["syncTimingButton"].exists)
+
+        let openApp = identified("openInMusicTimingButton", in: app)
+        let playFromLine = identified("playFromLineTimingButton", in: app)
+        let removeTiming = identified("removeTimingButton", in: app)
+        let clearSelection = identified("clearTimingSelectionButton", in: app)
+        var primaryActionRow = identified("timingPrimaryActionRow", in: app)
+        var secondaryActionRow = identified("timingSecondaryActionRow", in: app)
+        XCTAssertEqual(openApp.label, "Open song in Music")
+        XCTAssertEqual(clearSelection.label, "Clear line selection")
+        XCTAssertEqual(openApp.frame.midY, playFromLine.frame.midY, accuracy: 3)
+        XCTAssertGreaterThanOrEqual(secondaryActionRow.frame.minY, primaryActionRow.frame.maxY)
+        XCTAssertEqual(removeTiming.frame.minX, secondaryActionRow.frame.minX, accuracy: 3)
+        XCTAssertEqual(clearSelection.frame.maxX, secondaryActionRow.frame.maxX, accuracy: 3)
+
+        let initialLineFrame = identified("lyricLine-0", in: app).frame
+        let editorSplitter = app.splitters.allElementsBoundByIndex
+            .filter { $0.frame.midX > initialLineFrame.maxX - 8 }
+            .min { $0.frame.midX < $1.frame.midX }
+        guard let editorSplitter else {
+            XCTFail("Expected a splitter between the editor and preview panels")
+            return
+        }
+
+        let dragDistance = max(120, initialLineFrame.width - 388)
+        let dragStart = editorSplitter.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        )
+        dragStart.press(
+            forDuration: 0.2,
+            thenDragTo: dragStart.withOffset(CGVector(dx: -dragDistance, dy: 0))
+        )
+
+        let narrowLineFrame = identified("lyricLine-0", in: app).frame
+        XCTAssertLessThan(narrowLineFrame.width, initialLineFrame.width - 40)
+        XCTAssertLessThanOrEqual(narrowLineFrame.width, 410)
+        XCTAssertTrue(identified("compactTimingHeader", in: app).waitForExistence(timeout: 3))
+        XCTAssertTrue(identified("compactTimingControls", in: app).exists)
+
+        let panelFrame = identified("timingPanel", in: app).frame
+        let compactHeaderFrame = identified("compactTimingHeader", in: app).frame
+        primaryActionRow = identified("timingPrimaryActionRow", in: app)
+        secondaryActionRow = identified("timingSecondaryActionRow", in: app)
+        XCTAssertGreaterThanOrEqual(secondaryActionRow.frame.minY, primaryActionRow.frame.maxY)
+        XCTAssertEqual(removeTiming.frame.minX, secondaryActionRow.frame.minX, accuracy: 3)
+        XCTAssertEqual(clearSelection.frame.maxX, secondaryActionRow.frame.maxX, accuracy: 3)
+        XCTAssertEqual(secondaryActionRow.frame.minX, compactHeaderFrame.minX, accuracy: 3)
+        XCTAssertEqual(secondaryActionRow.frame.maxX, compactHeaderFrame.maxX, accuracy: 3)
+        XCTAssertGreaterThanOrEqual(secondaryActionRow.frame.minX, panelFrame.minX - 1)
+        XCTAssertLessThanOrEqual(secondaryActionRow.frame.maxX, panelFrame.maxX + 1)
+        let controlIDs = [
+            "timingStatus",
+            "timingPrimaryActionRow",
+            "timingSecondaryActionRow",
+            "openInMusicTimingButton",
+            "playFromLineTimingButton",
+            "removeTimingButton",
+            "clearTimingSelectionButton",
+            "timingSelectionSummary",
+            "timingOldValue",
+            "timingJogWheel",
+            "timingNewValue",
+            "stampTimingButton",
+            "timingDelayPicker",
+        ]
+        for identifier in controlIDs {
+            let control = identified(identifier, in: app)
+            XCTAssertTrue(control.exists, "Missing \(identifier) in the compact timing panel")
+            XCTAssertGreaterThanOrEqual(control.frame.minX, panelFrame.minX - 1, identifier)
+            XCTAssertLessThanOrEqual(control.frame.maxX, panelFrame.maxX + 1, identifier)
+            XCTAssertGreaterThanOrEqual(control.frame.minY, panelFrame.minY - 1, identifier)
+            XCTAssertLessThanOrEqual(control.frame.maxY, panelFrame.maxY + 1, identifier)
+        }
+
+        XCTAssertLessThanOrEqual(
+            identified("timingOldValue", in: app).frame.maxX,
+            identified("timingJogWheel", in: app).frame.minX
+        )
+        XCTAssertLessThanOrEqual(
+            identified("timingJogWheel", in: app).frame.maxX,
+            identified("timingNewValue", in: app).frame.minX
+        )
+        XCTAssertLessThanOrEqual(
+            identified("stampTimingButton", in: app).frame.maxX,
+            identified("timingDelayPicker", in: app).frame.minX
+        )
     }
 
     @MainActor

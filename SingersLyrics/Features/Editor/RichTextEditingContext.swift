@@ -59,6 +59,17 @@ final class RichTextEditingContext {
         canRedo = false
     }
 
+    func deactivate() {
+        if let textView, textView.window?.firstResponder === textView {
+            textView.window?.makeFirstResponder(nil)
+        }
+        textView = nil
+        onFormattingChange = nil
+        hasActiveEditor = false
+        canUndo = false
+        canRedo = false
+    }
+
     func selectionDidChange(in textView: NSTextView) {
         guard self.textView === textView else { return }
         savedRange = textView.selectedRange()

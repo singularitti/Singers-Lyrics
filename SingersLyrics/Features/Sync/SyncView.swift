@@ -4,6 +4,7 @@ import SwiftUI
 struct TimingJogWheel: View {
     let accessibilityValue: String
     let onShift: (Double) -> Void
+    let onShiftEnded: () -> Void
 
     @State private var previousDragWidth = 0.0
 
@@ -20,7 +21,7 @@ struct TimingJogWheel: View {
             }
         }
         .overlay {
-            TimingJogScrollView(onShift: onShift)
+            TimingJogScrollView(onShift: onShift, onShiftEnded: onShiftEnded)
                 .accessibilityHidden(true)
         }
         .contentShape(Rectangle())
@@ -33,6 +34,7 @@ struct TimingJogWheel: View {
                 }
                 .onEnded { _ in
                     previousDragWidth = 0
+                    onShiftEnded()
                 }
         )
         .accessibilityElement()
@@ -40,6 +42,7 @@ struct TimingJogWheel: View {
         .accessibilityValue(accessibilityValue)
         .accessibilityAdjustableAction { direction in
             onShift(direction == .increment ? 0.1 : -0.1)
+            onShiftEnded()
         }
         .help("Drag horizontally for 0.01 seconds per point, or use a mouse wheel or trackpad")
     }
@@ -47,20 +50,24 @@ struct TimingJogWheel: View {
 
 private struct TimingJogScrollView: NSViewRepresentable {
     let onShift: (Double) -> Void
+    let onShiftEnded: () -> Void
 
     func makeNSView(context: Context) -> TimingJogNSView {
         let view = TimingJogNSView()
         view.onShift = onShift
+        view.onShiftEnded = onShiftEnded
         return view
     }
 
     func updateNSView(_ view: TimingJogNSView, context: Context) {
         view.onShift = onShift
+        view.onShiftEnded = onShiftEnded
     }
 }
 
 private final class TimingJogNSView: NSView {
     var onShift: ((Double) -> Void)?
+    var onShiftEnded: (() -> Void)?
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         NSApp.currentEvent?.type == .scrollWheel ? self : nil
@@ -71,7 +78,15 @@ private final class TimingJogNSView: NSView {
         let vertical = Double(event.scrollingDeltaY)
         let primary = abs(horizontal) > abs(vertical) ? horizontal : vertical
         let multiplier = event.hasPreciseScrollingDeltas ? 0.01 : 0.1
-        guard primary != 0 else { return }
-        onShift?(primary * multiplier)
+        let phaseEnded = event.phase.contains(.ended) || event.phase.contains(.cancelled)
+        let momentumEnded = event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled)
+        if primary != 0 {
+            onShift?(primary * multiplier)
+        }
+        if phaseEnded
+            || momentumEnded
+            || (primary != 0 && event.phase.isEmpty && event.momentumPhase.isEmpty) {
+            onShiftEnded?()
+        }
     }
 }

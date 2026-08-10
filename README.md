@@ -54,11 +54,13 @@ Choose **New Song from Apple Music** and paste a supported HTTPS Apple Music son
 
 The main window has three columns: the song library, lyric editor, and live preview/player. The library uses the native sidebar collapse behavior, while dedicated toolbar buttons independently hide or restore the editor and preview. At least one workspace panel always remains visible. The selected song appears as one compact, left-aligned navigation title in `Title | Singer` form, and link/delete controls remain available when the library is collapsed.
 
-The editor uses the semantic macOS label color by default, so unformatted lyrics remain legible in both light and dark appearances. Its native color panel supports arbitrary sRGB colors and opacity while retaining a stable value in the library document; right-clicking the color well restores the adaptive default. Compact notebook-style controls below each lyric cell insert or delete lines, including the final line, and these structural edits share the native undo/redo history with formatting. Bold, italic, underline, font, color, symbol insertion, and style-preserving line splitting operate on the last text selection even when a toolbar control temporarily takes focus. The compact formatting controls stay on one line in narrow editor layouts. Attribute-only edits are explicitly synchronized back to the song model. If a selected font has no requested bold or italic face, the app warns and leaves the text unchanged.
+The editor uses one unified workspace for text editing and time syncing. Clicking lyric text reveals the contextual formatting controls; clearing the line selection hides them. Clicking a card, annotation, or timestamp selects that exact line for timing, with selection conveyed by the highlighted cell instead of a separate marker. Compact notebook-style controls below each lyric cell insert or delete lines, including the final line, and reduced cell insets leave more room for lyrics. Structural edits share the native undo/redo history with formatting and timing changes.
+
+Unformatted lyrics use the semantic macOS label color, so they remain legible in both light and dark appearances. The native color panel supports arbitrary sRGB colors and opacity while retaining a stable value in the library document; right-clicking the color well restores the adaptive default. Bold, italic, underline, font, color, symbol insertion, and style-preserving line splitting operate on the last text selection even when a toolbar control temporarily takes focus. The compact formatting controls stay on one line in narrow editor layouts. Attribute-only edits are explicitly synchronized back to the song model. If a selected font has no requested bold or italic face, the app warns and leaves the text unchanged.
 
 Settings includes a default fallback lyrics font. It applies only to runs without an explicitly selected font, so changing the preference updates plain lyrics without overwriting intentional per-run font choices.
 
-Synchronization reuses the editor's lyric cards: clicking a card selects that exact line, while Space or the timing button stamps it and advances. It also supports multi-selection, timing removal, horizontal dragging, and precise two-finger horizontal trackpad scrolling. A single visible jog wheel adjusts all selected lines and shows their before/after timestamp previews. Timing edits remain transactional until **Finish Time Syncing** is chosen.
+The timing panel remains visible below the lyrics. Space outside the rich-text editor, or the prominent **Tap** button, stamps the selected line and advances; Space inside lyric text is typed normally. The panel also supports multi-selection, timing removal, horizontal dragging, and precise two-finger horizontal trackpad scrolling. A single visible jog wheel adjusts every selected line and shows before/after timestamp previews. At narrow editor widths, the panel switches to stacked, aligned rows so playback, adjustment, stamping, and delay controls retain their natural sizes. Timing edits update the song live, autosave normally, and can be undone without replacing concurrent lyric edits.
 
 ## Architecture
 
@@ -70,13 +72,13 @@ SingersLyrics/
 ├── Features/
 │   ├── Library/         searchable/sortable sidebar and three-panel workspace
 │   ├── Editor/          AppKit rich-text bridge, imports, formatting, and symbols
-│   ├── Sync/            transactional timestamp synchronization workspace
+│   ├── Sync/            reusable timestamp adjustment controls
 │   ├── Player/          timed karaoke presentation and transport controls
 │   └── Settings/        persistent appearance and fallback-font settings
 └── Resources/           asset catalog and app icon
 ```
 
-SwiftUI supplies the application shell, navigation, toolbars, menus, sheets, alerts, settings, synchronization view, and player. A focused `NSTextView` bridge supplies native attributed-text editing. Internal `LibraryStoring`, `MusicControlling`, and `TrackMetadataLookingUp` protocols isolate filesystem, Apple Event, and network behavior for tests.
+SwiftUI supplies the application shell, navigation, toolbars, menus, sheets, alerts, settings, unified lyrics workspace, and player. A focused `NSTextView` bridge supplies native attributed-text editing. Internal `LibraryStoring`, `MusicControlling`, and `TrackMetadataLookingUp` protocols isolate filesystem, Apple Event, and network behavior for tests.
 
 ## Library data and recovery
 

@@ -40,11 +40,12 @@ struct RichTextEditor: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 2, height: 5)
+        textView.textContainerInset = NSSize(width: 2, height: 3)
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.setAccessibilityIdentifier(accessibilityIdentifier)
         textView.textStorage?.setAttributedString(
@@ -94,17 +95,19 @@ struct RichTextEditor: NSViewRepresentable {
             context.coordinator.isApplyingModel = false
         }
         if focusRequested, textView.window?.firstResponder !== textView {
-            Task { @MainActor in
+            Task { @MainActor [weak coordinator = context.coordinator, weak textView] in
+                guard let coordinator, let textView, coordinator.parent.focusRequested else { return }
                 textView.window?.makeFirstResponder(textView)
                 textView.setSelectedRange(NSRange(location: 0, length: 0))
-                if let preferredTypingStyle, value.plainText.isEmpty {
+                if let preferredTypingStyle = coordinator.parent.preferredTypingStyle,
+                   coordinator.parent.value.plainText.isEmpty {
                     textView.typingAttributes = AttributedTextCodec.makeAttributes(
                         from: preferredTypingStyle,
-                        fallbackFontFamily: fallbackFontFamily
+                        fallbackFontFamily: coordinator.parent.fallbackFontFamily
                     )
-                    editingContext.selectionDidChange(in: textView)
+                    coordinator.parent.editingContext.selectionDidChange(in: textView)
                 }
-                onFocusHandled()
+                coordinator.parent.onFocusHandled()
             }
         }
     }
@@ -117,7 +120,7 @@ struct RichTextEditor: NSViewRepresentable {
         textView.textContainer?.containerSize = NSSize(width: width - 4, height: .greatestFiniteMagnitude)
         textView.layoutManager?.ensureLayout(for: textView.textContainer!)
         let used = textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? 24
-        return CGSize(width: width, height: max(34, used + textView.textContainerInset.height * 2))
+        return CGSize(width: width, height: max(30, used + textView.textContainerInset.height * 2))
     }
 
     @MainActor

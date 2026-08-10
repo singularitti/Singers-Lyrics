@@ -164,16 +164,8 @@ struct ContentView: View {
         } else if let binding = model.bindingForSelectedSong() {
             SongWorkspaceView(
                 song: binding,
-                libraryPanelVisible: columnVisibility != .detailOnly,
-                isSyncing: model.syncSongID == binding.wrappedValue.id
+                libraryPanelVisible: columnVisibility != .detailOnly
             ) {
-                model.syncSongID = binding.wrappedValue.id
-            } onSaveTiming: { lines in
-                model.applySynchronizedLines(lines, to: binding.wrappedValue.id)
-                model.syncSongID = nil
-            } onCancelTiming: {
-                model.syncSongID = nil
-            } onEditLink: {
                 songForLink = binding.wrappedValue
             } onToggleLibrary: {
                 columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
@@ -197,17 +189,12 @@ struct ContentView: View {
 private struct SongWorkspaceView: View {
     @Binding var song: Song
     let libraryPanelVisible: Bool
-    let isSyncing: Bool
-    let onBeginSync: () -> Void
-    let onSaveTiming: ([LyricLine]) -> Void
-    let onCancelTiming: () -> Void
     let onEditLink: () -> Void
     let onToggleLibrary: () -> Void
     let onDelete: () -> Void
 
     @AppStorage(PreferenceKey.editorPanelVisible) private var editorPanelVisible = true
     @AppStorage(PreferenceKey.previewPanelVisible) private var previewPanelVisible = true
-    @State private var timingDraft: [LyricLine] = []
     @State private var showsImport = false
     @State private var showsExport = false
     @State private var exportError: String?
@@ -215,23 +202,12 @@ private struct SongWorkspaceView: View {
     var body: some View {
         HSplitView {
             if editorPanelVisible {
-                LyricsEditorView(
-                    song: $song,
-                    timingLines: $timingDraft,
-                    isSyncing: isSyncing,
-                    onCancelSync: onCancelTiming
-                )
-                .frame(minWidth: 420, idealWidth: 620)
+                LyricsEditorView(song: $song)
+                    .frame(minWidth: 420, idealWidth: 620)
             }
             if previewPanelVisible {
                 PlayerView(song: song)
                     .frame(minWidth: 340, idealWidth: 520)
-            }
-        }
-        .onChange(of: isSyncing) { _, syncing in
-            if syncing {
-                editorPanelVisible = true
-                timingDraft = song.lines
             }
         }
         .sheet(isPresented: $showsImport) {
@@ -266,7 +242,6 @@ private struct SongWorkspaceView: View {
                     Image(systemName: "square.and.arrow.down")
                 }
                 .help("Import Lyrics")
-                .disabled(isSyncing)
                 .accessibilityLabel("Import Lyrics")
                 .accessibilityIdentifier("importLyricsButton")
 
@@ -278,21 +253,6 @@ private struct SongWorkspaceView: View {
                 .help("Export LRC")
                 .accessibilityLabel("Export LRC")
                 .accessibilityIdentifier("exportLyricsButton")
-
-                Button {
-                    if isSyncing {
-                        onSaveTiming(timingDraft)
-                    } else {
-                        editorPanelVisible = true
-                        timingDraft = song.lines
-                        onBeginSync()
-                    }
-                } label: {
-                    Image(systemName: isSyncing ? "timer.circle.fill" : "timer")
-                }
-                .help(isSyncing ? "Finish Time Syncing" : "Time Syncing")
-                .accessibilityLabel(isSyncing ? "Finish Time Syncing" : "Time Syncing")
-                .accessibilityIdentifier("syncTimingButton")
 
                 Button(action: onToggleLibrary) {
                     Image(systemName: "sidebar.left")
@@ -307,7 +267,7 @@ private struct SongWorkspaceView: View {
                     Image(systemName: "rectangle.leadinghalf.inset.filled")
                 }
                 .help(editorPanelVisible ? "Hide Editor Panel" : "Show Editor Panel")
-                .disabled(isSyncing || (editorPanelVisible && !previewPanelVisible))
+                .disabled(editorPanelVisible && !previewPanelVisible)
                 .accessibilityLabel(editorPanelVisible ? "Hide Editor Panel" : "Show Editor Panel")
                 .accessibilityIdentifier("toggleEditorPanelButton")
 

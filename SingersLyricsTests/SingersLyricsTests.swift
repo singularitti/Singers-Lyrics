@@ -509,6 +509,47 @@ final class SingersLyricsTests: XCTestCase {
     }
 
     @MainActor
+    func testLiveTimestampEditPersistsWithoutOverwritingLyricText() async throws {
+        let store = InMemoryLibraryStore()
+        let model = AppModel(store: store)
+        await model.load()
+        let song = model.createSong(
+            appleMusicURL: URL(string: "https://music.apple.com/us/song/test/1")!,
+            metadata: TrackMetadata(title: "Test", artist: "Singer")
+        )
+        guard let songBinding = model.bindingForSelectedSong() else {
+            return XCTFail("Expected the newly created song to have a live binding")
+        }
+
+        let editedLyric = StyledText(runs: [
+            TextRun(
+                text: "Edited lyric",
+                style: TextStyle(
+                    fontFamily: "Helvetica Neue",
+                    foregroundColor: nil,
+                    bold: true,
+                    italic: false,
+                    underline: false
+                )
+            ),
+        ])
+        var textEdit = songBinding.wrappedValue
+        textEdit.lines[0].lyric = editedLyric
+        songBinding.wrappedValue = textEdit
+
+        var timingEdit = songBinding.wrappedValue
+        timingEdit.lines[0].timestampSeconds = 12.34
+        songBinding.wrappedValue = timingEdit
+        await model.flush()
+
+        let saved = try await store.load()
+        let savedSong = try XCTUnwrap(saved.songs.first { $0.id == song.id })
+        let savedLine = try XCTUnwrap(savedSong.lines.first)
+        XCTAssertEqual(savedLine.lyric, editedLyric)
+        XCTAssertEqual(savedLine.timestampSeconds ?? -1, 12.34, accuracy: 0.0001)
+    }
+
+    @MainActor
     func testAppModelPreservesSongWithNoLyricLines() async {
         let model = AppModel(store: InMemoryLibraryStore())
         await model.load()

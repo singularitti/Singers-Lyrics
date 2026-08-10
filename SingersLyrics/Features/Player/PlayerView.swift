@@ -35,7 +35,7 @@ struct PlayerView: View {
 
                 if !hasTiming {
                     Label(
-                        "No timing recorded yet — choose Sync Timing in the editor.",
+                        "No timing recorded yet — select a lyric and use the timing panel in the editor.",
                         systemImage: "info.circle"
                     )
                     .foregroundStyle(.blue)
@@ -93,7 +93,7 @@ struct PlayerView: View {
                 ContentUnavailableView(
                     "No Lyrics Yet",
                     systemImage: "text.quote",
-                    description: Text("Switch to Edit to add and format lyrics.")
+                    description: Text("Open the editor to add and format lyrics.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
