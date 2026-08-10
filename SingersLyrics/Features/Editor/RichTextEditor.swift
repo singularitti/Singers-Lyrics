@@ -10,6 +10,7 @@ struct RichTextEditor: NSViewRepresentable {
     let fallbackFontFamily: String?
     let focusRequested: Bool
     let preferredTypingStyle: TextStyle?
+    let onActivate: () -> Void
     let onFocusHandled: () -> Void
     let onSplit: (StyledText, StyledText, TextStyle) -> Void
 
@@ -135,6 +136,7 @@ struct RichTextEditor: NSViewRepresentable {
         }
 
         func activate(_ textView: NSTextView) {
+            parent.onActivate()
             parent.editingContext.attach(textView) { [weak self, weak textView] in
                 guard let self, let textView else { return }
                 persist(textView)

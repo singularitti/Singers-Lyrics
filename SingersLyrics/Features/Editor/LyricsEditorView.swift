@@ -22,11 +22,13 @@ struct LyricsEditorView: View {
     @State private var delay = 0.3
     @State private var shiftPreview: ShiftPreview?
     @State private var pollingOwner = UUID()
+    @State private var hoveredLineID: UUID?
     @AppStorage(PreferenceKey.defaultLyricsFontFamily) private var fallbackFontFamily = ""
     @FocusState private var listHasFocus: Bool
 
     private let delayOptions = [0.0, 0.2, 0.3, 0.5, 1.0]
     private let lineControlOverlap = 10.0
+    private let editingToolbarClearance = 72.0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,7 +46,7 @@ struct LyricsEditorView: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 8) {
+                    LazyVStack(spacing: 4) {
                         if visibleLines.isEmpty {
                             if isSyncing {
                                 ContentUnavailableView(
@@ -68,7 +70,9 @@ struct LyricsEditorView: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 16)
+                    .padding(.top, showsEditingToolbar ? editingToolbarClearance : 16)
+                    .padding(.bottom, 16)
+                    .animation(.snappy(duration: 0.2), value: showsEditingToolbar)
                 }
                 .accessibilityIdentifier("lyricsScrollView")
                 .onChange(of: targetID) { _, id in
@@ -85,11 +89,6 @@ struct LyricsEditorView: View {
             .onTapGesture {
                 listHasFocus = true
                 if !isSyncing {
-                    clearLineSelection()
-                }
-            }
-            .onChange(of: listHasFocus) { _, hasFocus in
-                if !hasFocus, !isSyncing {
                     clearLineSelection()
                 }
             }
@@ -121,14 +120,15 @@ struct LyricsEditorView: View {
             }
         }
         .background(.background)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if !isSyncing {
+        .overlay(alignment: .top) {
+            if showsEditingToolbar {
                 editingToolbar
                     .padding(.horizontal, 12)
                     .padding(.top, 10)
-                    .padding(.bottom, 6)
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        .animation(.snappy(duration: 0.2), value: showsEditingToolbar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if isSyncing {
                 timingPanel
@@ -192,19 +192,26 @@ struct LyricsEditorView: View {
 
             Spacer()
 
-            if !selectedLineIDs.isEmpty {
-                Button(role: .destructive) {
-                    deleteSelectedLines()
-                } label: {
-                    Label("Delete \(selectedLineIDs.count)", systemImage: "trash")
-                }
-                .accessibilityIdentifier("deleteSelectedLinesButton")
+            Button(role: .destructive) {
+                deleteSelectedLines()
+            } label: {
+                Label(deleteSelectedLinesLabel, systemImage: "trash")
             }
+            .accessibilityIdentifier("deleteSelectedLinesButton")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .glassEffect(.regular, in: .rect(cornerRadius: 16))
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+    }
+
+    private var showsEditingToolbar: Bool {
+        !isSyncing && !selectedLineIDs.isEmpty
+    }
+
+    private var deleteSelectedLinesLabel: String {
+        let noun = selectedLineIDs.count == 1 ? "line" : "lines"
+        return "Delete \(selectedLineIDs.count) \(noun)"
     }
 
     private var visibleLines: [LyricLine] {
@@ -215,12 +222,21 @@ struct LyricsEditorView: View {
     private func lineRow(line: LyricLine, index: Int) -> some View {
         lineCard(line: line, index: index)
             .overlay(alignment: .bottom) {
-                if !isSyncing {
+                if !isSyncing, hoveredLineID == line.id {
                     lineControls(line: line, index: index)
                         .offset(y: lineControlOverlap)
                 }
             }
             .padding(.bottom, isSyncing ? 0 : lineControlOverlap)
+            .contentShape(Rectangle())
+            .onHover { isHovering in
+                guard !isSyncing else { return }
+                if isHovering {
+                    hoveredLineID = line.id
+                } else if hoveredLineID == line.id {
+                    hoveredLineID = nil
+                }
+            }
     }
 
     @ViewBuilder
@@ -299,6 +315,9 @@ struct LyricsEditorView: View {
                             preferredTypingStyle: requestedFocusLineID == line.id
                                 ? requestedTypingStyle
                                 : nil,
+                            onActivate: {
+                                activateEditingLine(line.id)
+                            },
                             onFocusHandled: {
                                 requestedFocusLineID = nil
                                 requestedTypingStyle = nil
@@ -402,6 +421,11 @@ struct LyricsEditorView: View {
         .padding(.vertical, 2)
         .background(.regularMaterial, in: Capsule())
         .frame(maxWidth: .infinity, alignment: .center)
+        .background {
+            Color.clear
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("lineControls-\(index)")
+        }
     }
 
     private func selectionSymbol(for lineID: UUID) -> String {
@@ -457,12 +481,26 @@ struct LyricsEditorView: View {
                 Text("Shift \(adjustmentIDs.count) selected")
                     .foregroundStyle(.secondary)
 
+                timingValue(
+                    label: "Old",
+                    value: adjustmentOldTimeText,
+                    identifier: "timingOldValue"
+                )
+
                 TimingJogWheel(
-                    valueText: adjustmentValueText,
+                    accessibilityValue: "\(adjustmentOldTimeText) to \(adjustmentNewTimeText)",
                     onShift: nudgeAdjustmentTarget(by:)
                 )
-                .frame(minWidth: 180, maxWidth: .infinity, minHeight: 40, maxHeight: 40)
+                .frame(width: 132, height: 40)
                 .accessibilityIdentifier("timingJogWheel")
+
+                timingValue(
+                    label: "New",
+                    value: adjustmentNewTimeText,
+                    identifier: "timingNewValue"
+                )
+
+                Spacer(minLength: 0)
 
                 TimelineView(.animation(minimumInterval: 1 / 30)) { context in
                     Button {
@@ -485,28 +523,6 @@ struct LyricsEditorView: View {
                 .frame(width: 105)
             }
 
-            ScrollView(.horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(timingPreviewRows) { row in
-                        HStack(spacing: 4) {
-                            Text("\(row.index + 1)")
-                                .foregroundStyle(.secondary)
-                            Text(preciseTime(row.original))
-                            Image(systemName: "arrow.right")
-                                .foregroundStyle(.tertiary)
-                            Text(preciseTime(row.current))
-                                .foregroundStyle(Color.accentColor)
-                        }
-                        .font(.caption.monospacedDigit())
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(.background.opacity(0.7), in: Capsule())
-                    }
-                }
-            }
-            .scrollIndicators(.hidden)
-            .accessibilityIdentifier("shiftedTimingPreview")
-
             Text("Click a lyric or press Space to stamp and advance · use the circles with Command/Shift for selection")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -517,6 +533,23 @@ struct LyricsEditorView: View {
         .padding(.vertical, 12)
         .glassEffect(.regular, in: .rect(cornerRadius: 20))
         .shadow(color: .black.opacity(0.14), radius: 16, y: 5)
+    }
+
+    private func timingValue(label: String, value: String, identifier: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Text(value)
+                .font(.caption.monospacedDigit().weight(.medium))
+                .foregroundStyle(label == "New" ? Color.accentColor : .secondary)
+                .lineLimit(1)
+        }
+        .frame(minWidth: 64, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label) time")
+        .accessibilityValue(value)
+        .accessibilityIdentifier(identifier)
     }
 
     private var syncStatus: String {
@@ -636,6 +669,12 @@ struct LyricsEditorView: View {
             selectedLineIDs = [lineID]
             selectionAnchor = lineID
         }
+    }
+
+    private func activateEditingLine(_ lineID: UUID) {
+        guard !isSyncing, selectedLineIDs != [lineID] else { return }
+        selectedLineIDs = [lineID]
+        selectionAnchor = lineID
     }
 
     private func handleSyncLineTap(_ lineID: UUID, modifiers: NSEvent.ModifierFlags) {
@@ -766,26 +805,27 @@ struct LyricsEditorView: View {
         return Set(targetID.map { [$0] } ?? [])
     }
 
-    private var adjustmentValueText: String {
-        guard adjustmentIDs.count == 1,
-              let id = adjustmentIDs.first,
-              let line = timingLines.first(where: { $0.id == id }) else {
-            return "\(adjustmentIDs.count) lines"
+    private var adjustmentReferenceID: UUID? {
+        if let targetID, adjustmentIDs.contains(targetID) {
+            return targetID
         }
-        return preciseTime(line.timestampSeconds)
+        return timingLines.first(where: { adjustmentIDs.contains($0.id) })?.id
     }
 
-    private var timingPreviewRows: [TimingPreviewRow] {
-        timingLines.enumerated().compactMap { index, line in
-            guard adjustmentIDs.contains(line.id) else { return nil }
-            let original = shiftPreview?.originalTimes[line.id] ?? line.timestampSeconds ?? 0
-            return TimingPreviewRow(
-                id: line.id,
-                index: index,
-                original: original,
-                current: line.timestampSeconds
-            )
+    private var adjustmentOldTimeText: String {
+        guard let id = adjustmentReferenceID,
+              let line = timingLines.first(where: { $0.id == id }) else {
+            return preciseTime(nil)
         }
+        return preciseTime(shiftPreview?.originalTimes[id] ?? line.timestampSeconds)
+    }
+
+    private var adjustmentNewTimeText: String {
+        guard let id = adjustmentReferenceID,
+              let line = timingLines.first(where: { $0.id == id }) else {
+            return preciseTime(nil)
+        }
+        return preciseTime(line.timestampSeconds)
     }
 
     private func stampCurrentLine(lineID: UUID? = nil) {
@@ -848,12 +888,6 @@ struct LyricsEditorView: View {
         var delta: Double
     }
 
-    private struct TimingPreviewRow: Identifiable {
-        var id: UUID
-        var index: Int
-        var original: Double
-        var current: Double?
-    }
 }
 
 private struct EditPanelOutsideClickMonitor: NSViewRepresentable {

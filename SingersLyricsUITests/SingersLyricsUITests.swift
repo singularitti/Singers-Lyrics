@@ -140,6 +140,7 @@ final class SingersLyricsUITests: XCTestCase {
         firstLine.typeText("First")
         firstLine.typeKey("a", modifierFlags: .command)
 
+        XCTAssertTrue(identified("boldButton", in: app).waitForExistence(timeout: 3))
         for identifier in ["boldButton", "italicButton", "underlineButton"] {
             let button = identified(identifier, in: app)
             XCTAssertTrue(button.isEnabled)
@@ -192,19 +193,23 @@ final class SingersLyricsUITests: XCTestCase {
 
         let first = app.buttons["selectLine-0"]
         let third = app.buttons["selectLine-2"]
+        XCTAssertFalse(identified("boldButton", in: app).exists)
         XCTAssertEqual(first.value as? String, "Not selected")
         first.click()
         XCTAssertEqual(first.value as? String, "Selected")
+        XCTAssertTrue(identified("boldButton", in: app).waitForExistence(timeout: 3))
+        XCTAssertEqual(app.buttons["deleteSelectedLinesButton"].label, "Delete 1 line")
         first.click()
         XCTAssertEqual(first.value as? String, "Not selected")
         XCTAssertFalse(app.buttons["deleteSelectedLinesButton"].exists)
+        XCTAssertFalse(identified("boldButton", in: app).exists)
 
         first.click()
         XCUIElement.perform(withKeyModifiers: .command) {
             third.click()
         }
         let bulkDelete = app.buttons["deleteSelectedLinesButton"]
-        XCTAssertTrue(bulkDelete.label.contains("2"))
+        XCTAssertEqual(bulkDelete.label, "Delete 2 lines")
 
         let scrollView = identified("lyricsScrollView", in: app)
         scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).click()
@@ -219,30 +224,41 @@ final class SingersLyricsUITests: XCTestCase {
         XCUIElement.perform(withKeyModifiers: .shift) {
             third.click()
         }
-        XCTAssertTrue(bulkDelete.label.contains("3"))
+        XCTAssertEqual(bulkDelete.label, "Delete 3 lines")
 
         first.click()
         app.typeKey("a", modifierFlags: .command)
-        XCTAssertTrue(bulkDelete.label.contains("3"))
+        XCTAssertEqual(bulkDelete.label, "Delete 3 lines")
         bulkDelete.click()
 
         XCTAssertTrue(app.buttons["emptyAddLineButton"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.textViews["lyricText-0"].exists)
 
-        let undo = identified("undoFormattingButton", in: app)
-        XCTAssertTrue(undo.isEnabled)
-        undo.click()
+        app.typeKey("z", modifierFlags: .command)
         XCTAssertEqual(app.textViews["lyricText-0"].value as? String, "First")
         XCTAssertEqual(app.textViews["lyricText-2"].value as? String, "Plain third")
 
+        let firstRow = identified("editLine-0", in: app)
+        XCTAssertFalse(app.buttons["addLineBelow-0"].exists)
+        firstRow.hover()
+        XCTAssertTrue(app.buttons["addLineBelow-0"].waitForExistence(timeout: 3))
         app.buttons["addLineBelow-0"].click()
         XCTAssertTrue(app.textViews["lyricText-1"].waitForExistence(timeout: 3))
         XCTAssertEqual(app.textViews["lyricText-1"].value as? String, "")
+        firstRow.hover()
+        XCTAssertTrue(app.buttons["addLineBelow-0"].waitForExistence(timeout: 3))
+        let lineControls = identified("lineControls-0", in: app)
+        XCTAssertTrue(lineControls.exists)
         XCTAssertEqual(
-            app.buttons["addLineBelow-0"].frame.midY,
-            identified("editLine-0", in: app).frame.maxY,
+            lineControls.frame.midY,
+            identified("editLine-0", in: app).frame.maxY - lineControls.frame.height / 2,
             accuracy: 3
         )
+        let secondRow = identified("editLine-1", in: app)
+        XCTAssertGreaterThan(secondRow.frame.minY, lineControls.frame.maxY)
+        XCTAssertLessThanOrEqual(secondRow.frame.minY - lineControls.frame.maxY, 6)
+        secondRow.hover()
+        XCTAssertTrue(app.buttons["deleteLine-1"].waitForExistence(timeout: 3))
         app.buttons["deleteLine-1"].click()
         XCTAssertEqual(app.textViews["lyricText-1"].value as? String, "Second")
         app.typeKey("z", modifierFlags: .command)
@@ -319,8 +335,16 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertFalse(app.buttons["fineAdjustMinusButton"].exists)
         XCTAssertFalse(app.buttons["fineAdjustPlusButton"].exists)
         XCTAssertFalse(app.buttons["Previous line"].exists)
-        XCTAssertTrue(identified("timingJogWheel", in: app).exists)
-        XCTAssertTrue(identified("shiftedTimingPreview", in: app).exists)
+        let oldTime = identified("timingOldValue", in: app)
+        let wheel = identified("timingJogWheel", in: app)
+        let newTime = identified("timingNewValue", in: app)
+        XCTAssertTrue(oldTime.exists)
+        XCTAssertTrue(wheel.exists)
+        XCTAssertTrue(newTime.exists)
+        XCTAssertFalse(identified("shiftedTimingPreview", in: app).exists)
+        XCTAssertLessThanOrEqual(wheel.frame.width, 140)
+        XCTAssertLessThanOrEqual(oldTime.frame.maxX, wheel.frame.minX)
+        XCTAssertGreaterThanOrEqual(newTime.frame.minX, wheel.frame.maxX)
         firstTiming.click()
         XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "0.00")
         app.buttons["stampTimingButton"].click()

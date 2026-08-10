@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct TimingJogWheel: View {
-    let valueText: String
+    let accessibilityValue: String
     let onShift: (Double) -> Void
 
     @State private var previousDragWidth = 0.0
@@ -18,11 +18,6 @@ struct TimingJogWheel: View {
                         .frame(width: index == 8 ? 2 : 1, height: index.isMultiple(of: 4) ? 22 : 13)
                 }
             }
-            Text(valueText)
-                .font(.caption.monospacedDigit().weight(.semibold))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(.regularMaterial, in: Capsule())
         }
         .overlay {
             TimingJogScrollView(onShift: onShift)
@@ -42,7 +37,7 @@ struct TimingJogWheel: View {
         )
         .accessibilityElement()
         .accessibilityLabel("Fine timing adjustment wheel")
-        .accessibilityValue(valueText)
+        .accessibilityValue(accessibilityValue)
         .accessibilityAdjustableAction { direction in
             onShift(direction == .increment ? 0.1 : -0.1)
         }
