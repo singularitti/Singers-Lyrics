@@ -544,6 +544,33 @@ final class SingersLyricsTests: XCTestCase {
     }
 
     @MainActor
+    func testMusicPlaybackPlayheadSeekKeepsStoppedTrackStoppedAtZero() async {
+        let song = linkedSong(title: "Expected", artist: "Singer")
+        let controller = MockMusicController(states: [
+            MusicState(
+                state: .stopped,
+                position: 4,
+                duration: 10,
+                trackName: "Expected",
+                trackArtist: "Singer",
+                trackPersistentID: "AAA"
+            ),
+        ])
+        let model = MusicPlaybackModel(controller: controller)
+        model.beginMonitoring(song)
+        await model.refresh()
+
+        await model.seek(song, to: 0)
+
+        let positionOnlySeek = await controller.recordedPositionOnlySeek()
+        let seekAndPlay = await controller.recordedSeek()
+        XCTAssertEqual(positionOnlySeek, 0)
+        XCTAssertNil(seekAndPlay)
+        XCTAssertEqual(model.state.position, 0)
+        XCTAssertEqual(model.state.state, .stopped)
+    }
+
+    @MainActor
     func testMusicPlaybackStopsWhenPersistentTrackIdentityChanges() async {
         let song = linkedSong(title: "Expected", artist: "Singer")
         let controller = MockMusicController(states: [
@@ -876,6 +903,7 @@ private actor MockMusicController: MusicControlling {
     private var states: [MusicState]
     private var mostRecentState = MusicState()
     var lastSeek: Double?
+    var lastPositionOnlySeek: Double?
     var stopCount = 0
     var openCount = 0
 
@@ -897,6 +925,11 @@ private actor MockMusicController: MusicControlling {
         mostRecentState.state = mostRecentState.state == .playing ? .paused : .playing
         return mostRecentState
     }
+    func seek(to seconds: Double) async -> MusicActionResult {
+        lastPositionOnlySeek = seconds
+        mostRecentState.position = seconds
+        return MusicActionResult(succeeded: true, permissionDenied: false)
+    }
     func seekAndPlay(to seconds: Double) async -> MusicActionResult {
         lastSeek = seconds
         mostRecentState.position = seconds
@@ -911,6 +944,7 @@ private actor MockMusicController: MusicControlling {
     }
 
     func recordedSeek() -> Double? { lastSeek }
+    func recordedPositionOnlySeek() -> Double? { lastPositionOnlySeek }
     func recordedStopCount() -> Int { stopCount }
     func recordedOpenCount() -> Int { openCount }
 }

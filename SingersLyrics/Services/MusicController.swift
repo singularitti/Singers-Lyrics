@@ -12,6 +12,7 @@ protocol MusicControlling: Sendable {
     func currentState() async -> MusicState
     func openTrack(_ url: URL) async -> MusicActionResult
     func playPause() async -> MusicState
+    func seek(to seconds: Double) async -> MusicActionResult
     func seekAndPlay(to seconds: Double) async -> MusicActionResult
     func stop() async -> MusicActionResult
 }
@@ -115,6 +116,17 @@ actor AppleMusicController: MusicControlling {
         return await currentState()
     }
 
+    func seek(to seconds: Double) async -> MusicActionResult {
+        let position = seconds.isFinite ? max(0, seconds) : 0
+        let result = run(
+            "tell application \"Music\" to set player position to \(position)"
+        )
+        return MusicActionResult(
+            succeeded: result.succeeded,
+            permissionDenied: result.permissionDenied
+        )
+    }
+
     func seekAndPlay(to seconds: Double) async -> MusicActionResult {
         let position = seconds.isFinite ? max(0, seconds) : 0
         let result = run(
@@ -181,6 +193,9 @@ actor InertMusicController: MusicControlling {
         MusicActionResult(succeeded: true, permissionDenied: false)
     }
     func playPause() async -> MusicState { MusicState() }
+    func seek(to seconds: Double) async -> MusicActionResult {
+        MusicActionResult(succeeded: true, permissionDenied: false)
+    }
     func seekAndPlay(to seconds: Double) async -> MusicActionResult {
         MusicActionResult(succeeded: true, permissionDenied: false)
     }
@@ -578,6 +593,26 @@ final class MusicPlaybackModel {
         }
     }
 
+    func seek(_ song: Song, to seconds: Double) async {
+        let nextTarget = PlaybackTarget(song: song)
+        configureTarget(nextTarget)
+
+        if !isAcceptedTargetState(state, target: nextTarget) {
+            let sample = await controller.currentState()
+            sampledAt = Date()
+            if sample.permissionDenied {
+                state = sample
+                lastActionFailed = true
+                return
+            }
+            guard isAcceptedTargetState(sample, target: nextTarget) else { return }
+            state = sample
+        }
+
+        establishSession(with: state)
+        await performSeekWithoutStartingPlayback(to: seconds)
+    }
+
     func refresh() async {
         let sample = await controller.currentState()
         await accept(sample)
@@ -667,6 +702,21 @@ final class MusicPlaybackModel {
         guard result.succeeded else { return }
         state.position = position
         state.state = .playing
+        sampledAt = Date()
+        previousAcceptedState = state
+        issue = nil
+    }
+
+    private func performSeekWithoutStartingPlayback(to seconds: Double) async {
+        let position = seconds.isFinite ? max(0, seconds) : 0
+        let result = await controller.seek(to: position)
+        lastActionFailed = !result.succeeded
+        if result.permissionDenied {
+            state.permissionDenied = true
+            return
+        }
+        guard result.succeeded else { return }
+        state.position = position
         sampledAt = Date()
         previousAcceptedState = state
         issue = nil

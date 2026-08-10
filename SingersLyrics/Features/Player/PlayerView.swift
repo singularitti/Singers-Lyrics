@@ -198,7 +198,7 @@ struct PlayerView: View {
                         } else {
                             let destination = scrubPosition
                             isScrubbing = false
-                            Task { await playback.seekAndPlay(song, to: destination) }
+                            Task { await playback.seek(song, to: destination) }
                         }
                     }
                 )
