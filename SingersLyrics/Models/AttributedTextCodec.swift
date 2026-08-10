@@ -239,7 +239,7 @@ enum AttributedTextCodec {
     }
 }
 
-private extension RGBAColor {
+extension RGBAColor {
     var nsColor: NSColor {
         NSColor(
             srgbRed: CGFloat(red) / 255,

@@ -23,6 +23,7 @@ final class RichTextEditingContext {
     private(set) var isBold = false
     private(set) var isItalic = false
     private(set) var isUnderlined = false
+    private(set) var selectedTextColor: RGBAColor?
     private(set) var canUndo = false
     private(set) var canRedo = false
     var warning: FormattingWarning?
@@ -418,6 +419,15 @@ final class RichTextEditingContext {
         let font = effectiveFontSegments(in: textView, range: range).first?.font
             ?? attributes[.font] as? NSFont
             ?? NSFont.systemFont(ofSize: 17)
+        if attributes[.singersLyricsAdaptiveForeground] != nil {
+            selectedTextColor = nil
+        } else if let storedHex = attributes[.singersLyricsStoredForeground] as? String {
+            selectedTextColor = RGBAColor(hex: storedHex)
+        } else {
+            selectedTextColor = (attributes[.foregroundColor] as? NSColor)
+                .flatMap { $0.usingColorSpace(.sRGB) }
+                .map(RGBAColor.init)
+        }
         let traits = NSFontManager.shared.traits(of: font)
         isBold = traits.contains(.boldFontMask)
         isItalic = traits.contains(.italicFontMask)

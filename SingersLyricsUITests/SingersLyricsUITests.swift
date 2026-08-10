@@ -162,8 +162,10 @@ final class SingersLyricsUITests: XCTestCase {
         firstLine.typeKey("z", modifierFlags: [.command, .shift])
         XCTAssertEqual(identified("underlineButton", in: app).value as? String, "On")
 
-        identified("textColorMenu", in: app).click()
-        app.menuItems["Blue"].click()
+        let colorPicker = identified("textColorPicker", in: app)
+        XCTAssertTrue(colorPicker.exists)
+        colorPicker.click()
+        XCTAssertTrue(app.windows["Colors"].waitForExistence(timeout: 3))
 
         firstLine.typeKey(XCUIKeyboardKey.end, modifierFlags: [])
         firstLine.typeKey(XCUIKeyboardKey.return, modifierFlags: [])
@@ -346,7 +348,11 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertLessThanOrEqual(oldTime.frame.maxX, wheel.frame.minX)
         XCTAssertGreaterThanOrEqual(newTime.frame.minX, wheel.frame.maxX)
         firstTiming.click()
+        XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "1.20")
+        XCTAssertEqual(identified("syncLine-1", in: app).value as? String, "2.30")
+        app.buttons["stampTimingButton"].click()
         XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "0.00")
+        XCTAssertEqual(identified("syncLine-1", in: app).value as? String, "2.30")
         app.buttons["stampTimingButton"].click()
         XCTAssertEqual(identified("syncLine-1", in: app).value as? String, "0.00")
         XCUIElement.perform(withKeyModifiers: .command) {
@@ -366,6 +372,36 @@ final class SingersLyricsUITests: XCTestCase {
         app.buttons["syncTimingButton"].click()
         XCTAssertTrue(identified("lyricsEditorView", in: app).waitForExistence(timeout: 3))
         XCTAssertEqual(identified("lineTime-0", in: app).label, "––:––")
+    }
+
+    @MainActor
+    func testSyncClickSelectsTheExactLineBeforeStamping() {
+        let app = launchApp()
+        _ = createSong(in: app)
+        importLyrics(
+            "[00:01.20] First\n[00:02.30] Second\n[00:03.40] Third",
+            in: app
+        )
+
+        app.buttons["syncTimingButton"].click()
+        XCTAssertTrue(identified("syncView", in: app).waitForExistence(timeout: 3))
+
+        identified("syncLine-1", in: app).click()
+        XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "1.20")
+        XCTAssertEqual(identified("syncLine-1", in: app).value as? String, "2.30")
+        XCTAssertEqual(identified("syncLine-2", in: app).value as? String, "3.40")
+
+        app.buttons["stampTimingButton"].click()
+        XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "1.20")
+        XCTAssertEqual(identified("syncLine-1", in: app).value as? String, "0.00")
+        XCTAssertEqual(identified("syncLine-2", in: app).value as? String, "3.40")
+
+        identified("syncLine-0", in: app).click()
+        XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "1.20")
+        app.buttons["stampTimingButton"].click()
+        XCTAssertEqual(identified("syncLine-0", in: app).value as? String, "0.00")
+        XCTAssertEqual(identified("syncLine-1", in: app).value as? String, "0.00")
+        XCTAssertEqual(identified("syncLine-2", in: app).value as? String, "3.40")
     }
 
     @MainActor

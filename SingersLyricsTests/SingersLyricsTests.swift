@@ -93,13 +93,15 @@ final class SingersLyricsTests: XCTestCase {
         context.toggleBold()
         context.toggleItalic()
         context.toggleUnderline()
-        context.applyColor(TextColorPalette.choices[3].storedColor)
+        let customColor = RGBAColor(red: 19, green: 87, blue: 203, alpha: 171)
+        context.applyColor(customColor)
 
         let style = try XCTUnwrap(persisted?.runs.first?.style)
         XCTAssertTrue(style.bold)
         XCTAssertTrue(style.italic)
         XCTAssertTrue(style.underline)
-        XCTAssertEqual(style.foregroundColor, TextColorPalette.choices[3].storedColor)
+        XCTAssertEqual(style.foregroundColor, customColor)
+        XCTAssertEqual(context.selectedTextColor, customColor)
     }
 
     @MainActor

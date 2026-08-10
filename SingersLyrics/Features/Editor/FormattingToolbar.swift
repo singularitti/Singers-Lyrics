@@ -9,6 +9,21 @@ struct FormattingToolbar: View {
     let onRedo: () -> Void
     let onSymbols: () -> Void
 
+    private var textColor: Binding<Color> {
+        Binding(
+            get: {
+                guard let color = editingContext.selectedTextColor else {
+                    return Color(nsColor: .labelColor)
+                }
+                return Color(nsColor: TextColorPalette.displayColor(for: color))
+            },
+            set: { color in
+                guard let converted = NSColor(color).usingColorSpace(.sRGB) else { return }
+                editingContext.applyColor(RGBAColor(converted))
+            }
+        )
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             Button {
@@ -33,7 +48,9 @@ struct FormattingToolbar: View {
             .accessibilityLabel("Redo")
             .accessibilityIdentifier("redoFormattingButton")
 
-            Divider().frame(height: 18)
+            Divider()
+                .frame(width: 1, height: 18)
+                .fixedSize()
 
             Button {
                 editingContext.toggleBold()
@@ -71,31 +88,28 @@ struct FormattingToolbar: View {
             .background(editingContext.isUnderlined ? Color.accentColor.opacity(0.18) : .clear)
             .disabled(!editingContext.hasActiveEditor)
 
-            Divider().frame(height: 18)
+            Divider()
+                .frame(width: 1, height: 18)
+                .fixedSize()
 
-            Menu {
+            ColorPicker(
+                "Text Color",
+                selection: textColor,
+                supportsOpacity: true
+            )
+            .labelsHidden()
+            .fixedSize()
+            .help("Text Color")
+            .accessibilityLabel("Text Color")
+            .accessibilityIdentifier("textColorPicker")
+            .disabled(!editingContext.hasActiveEditor)
+            .contextMenu {
                 Button {
                     editingContext.applyColor(nil)
                 } label: {
-                    Label("Default (Adaptive)", systemImage: "circle.lefthalf.filled")
+                    Label("Use Default Text Color", systemImage: "circle.lefthalf.filled")
                 }
-
-                Divider()
-
-                ForEach(TextColorPalette.choices) { choice in
-                    Button {
-                        editingContext.applyColor(choice.storedColor)
-                    } label: {
-                        Label(choice.name, systemImage: "circle.fill")
-                    }
-                    .accessibilityIdentifier("textColor-\(choice.name)")
-                }
-            } label: {
-                Label("Text Color", systemImage: "paintpalette")
             }
-            .menuStyle(.borderlessButton)
-            .accessibilityIdentifier("textColorMenu")
-            .disabled(!editingContext.hasActiveEditor)
 
             Menu {
                 ForEach(FontCatalog.availableFamilies, id: \.self) { family in
@@ -104,20 +118,29 @@ struct FormattingToolbar: View {
                     }
                 }
             } label: {
-                Label("Font", systemImage: "textformat")
+                Image(systemName: "textformat")
             }
             .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Font")
+            .accessibilityLabel("Font")
             .accessibilityIdentifier("fontMenu")
             .disabled(!editingContext.hasActiveEditor)
 
-            Divider().frame(height: 18)
+            Divider()
+                .frame(width: 1, height: 18)
+                .fixedSize()
 
             Button(action: onSymbols) {
-                Label("Symbols", systemImage: "character")
+                Image(systemName: "character")
             }
             .buttonStyle(.borderless)
+            .fixedSize()
+            .help("Symbols")
+            .accessibilityLabel("Symbols")
             .accessibilityIdentifier("symbolsButton")
             .disabled(!editingContext.hasActiveEditor)
         }
+        .fixedSize(horizontal: true, vertical: true)
     }
 }

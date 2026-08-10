@@ -189,14 +189,22 @@ struct LyricsEditorView: View {
                 onRedo: redoEditorChange,
                 onSymbols: { showsSymbols = true }
             )
+            .layoutPriority(1)
 
-            Spacer()
+            Spacer(minLength: 0)
 
             Button(role: .destructive) {
                 deleteSelectedLines()
             } label: {
-                Label(deleteSelectedLinesLabel, systemImage: "trash")
+                ViewThatFits(in: .horizontal) {
+                    Label(deleteSelectedLinesLabel, systemImage: "trash")
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Image(systemName: "trash")
+                }
             }
+            .help(deleteSelectedLinesLabel)
+            .accessibilityLabel(deleteSelectedLinesLabel)
             .accessibilityIdentifier("deleteSelectedLinesButton")
         }
         .padding(.horizontal, 16)
@@ -523,7 +531,7 @@ struct LyricsEditorView: View {
                 .frame(width: 105)
             }
 
-            Text("Click a lyric or press Space to stamp and advance · use the circles with Command/Shift for selection")
+            Text("Click a lyric to select · press Space or Tap to stamp and advance · use the circles with Command/Shift for multi-selection")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
@@ -678,15 +686,7 @@ struct LyricsEditorView: View {
     }
 
     private func handleSyncLineTap(_ lineID: UUID, modifiers: NSEvent.ModifierFlags) {
-        if modifiers.contains(.command) || modifiers.contains(.shift) {
-            selectLine(lineID, modifiers: modifiers)
-        } else {
-            targetID = lineID
-            selectedLineIDs = [lineID]
-            selectionAnchor = lineID
-            resetShiftPreview()
-            stampCurrentLine(lineID: lineID)
-        }
+        selectLine(lineID, modifiers: modifiers)
         listHasFocus = true
     }
 
