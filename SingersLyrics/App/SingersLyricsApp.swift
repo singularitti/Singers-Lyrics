@@ -54,6 +54,8 @@ struct SingersLyricsApp: App {
         .defaultLaunchBehavior(isUnitTestHost ? .suppressed : .presented)
         .defaultSize(width: 1_380, height: 820)
         .windowResizability(.contentMinSize)
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             SingersLyricsCommands(model: appModel)
         }
@@ -117,7 +119,11 @@ private final class SingersLyricsApplicationDelegate: NSObject, NSApplicationDel
             defer: false
         )
         window.title = "Singers Lyrics"
-        window.minSize = NSSize(width: 820, height: 560)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.toolbarStyle = .unified
+        window.minSize = NSSize(width: 1_180, height: 560)
         window.contentViewController = hostingController
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed

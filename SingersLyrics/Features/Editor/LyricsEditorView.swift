@@ -29,7 +29,6 @@ struct LyricsEditorView: View {
 
     private let delayOptions = [0.0, 0.2, 0.3, 0.5, 1.0]
     private let lineControlOverlap = 10.0
-    private let editingToolbarClearance = 72.0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,6 +43,13 @@ struct LyricsEditorView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
             }
+
+            editingToolbar
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(3)
 
             ScrollViewReader { proxy in
                 ScrollView {
@@ -64,9 +70,8 @@ struct LyricsEditorView: View {
                         }
                     }
                     .padding(.horizontal, 12)
-                    .padding(.top, showsEditingToolbar ? editingToolbarClearance : 16)
+                    .padding(.top, 16)
                     .padding(.bottom, 16)
-                    .animation(.snappy(duration: 0.2), value: showsEditingToolbar)
                 }
                 .accessibilityIdentifier("lyricsScrollView")
                 .onChange(of: requestedScrollLineID) { _, id in
@@ -117,23 +122,16 @@ struct LyricsEditorView: View {
                 clearLineSelection()
                 return .handled
             }
-        }
-        .background(.background)
-        .overlay(alignment: .top) {
-            if showsEditingToolbar {
-                editingToolbar
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .animation(.snappy(duration: 0.2), value: showsEditingToolbar)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+
             timingPanel
                 .padding(.horizontal, 12)
                 .padding(.top, 6)
                 .padding(.bottom, 10)
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(2)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.background)
         .background {
             EditPanelOutsideClickMonitor {
                 clearLineSelection()
@@ -176,33 +174,33 @@ struct LyricsEditorView: View {
 
     private var editingToolbar: some View {
         HStack(spacing: 14) {
-            if editingLineID != nil {
-                FormattingToolbar(
-                    editingContext: editingContext,
-                    canUndo: editingContext.canUndo || lineUndoController.canUndo,
-                    canRedo: editingContext.canRedo || lineUndoController.canRedo,
-                    onUndo: undoEditorChange,
-                    onRedo: redoEditorChange,
-                    onSymbols: { showsSymbols = true }
-                )
-                .layoutPriority(1)
-            }
+            FormattingToolbar(
+                editingContext: editingContext,
+                canUndo: editingContext.canUndo || lineUndoController.canUndo,
+                canRedo: editingContext.canRedo || lineUndoController.canRedo,
+                onUndo: undoEditorChange,
+                onRedo: redoEditorChange,
+                onSymbols: { showsSymbols = true }
+            )
+            .layoutPriority(1)
 
             Spacer(minLength: 0)
 
-            Button(role: .destructive) {
-                deleteSelectedLines()
-            } label: {
-                ViewThatFits(in: .horizontal) {
-                    Label(deleteSelectedLinesLabel, systemImage: "trash")
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                    Image(systemName: "trash")
+            if !selectedLineIDs.isEmpty {
+                Button(role: .destructive) {
+                    deleteSelectedLines()
+                } label: {
+                    ViewThatFits(in: .horizontal) {
+                        Label(deleteSelectedLinesLabel, systemImage: "trash")
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                        Image(systemName: "trash")
+                    }
                 }
+                .help(deleteSelectedLinesLabel)
+                .accessibilityLabel(deleteSelectedLinesLabel)
+                .accessibilityIdentifier("deleteSelectedLinesButton")
             }
-            .help(deleteSelectedLinesLabel)
-            .accessibilityLabel(deleteSelectedLinesLabel)
-            .accessibilityIdentifier("deleteSelectedLinesButton")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -210,10 +208,6 @@ struct LyricsEditorView: View {
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(editingLineID == nil ? "lineSelectionPanel" : "textEditingPanel")
-    }
-
-    private var showsEditingToolbar: Bool {
-        editingLineID != nil || selectedLineIDs.count > 1
     }
 
     private var deleteSelectedLinesLabel: String {
@@ -336,6 +330,11 @@ struct LyricsEditorView: View {
                     selectTimingLine(line.id, modifiers: NSEvent.modifierFlags)
                 }
         }
+        .background {
+            ModifiedLineClickMonitor { modifiers in
+                selectTimingLine(line.id, modifiers: modifiers)
+            }
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(selectedLineIDs.contains(line.id) ? Color.accentColor.opacity(0.45) : .clear)
@@ -437,7 +436,7 @@ struct LyricsEditorView: View {
             timingHeaderText
                 .frame(width: 190, alignment: .leading)
 
-            timingActionRows
+            timingActionRow
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
@@ -447,7 +446,7 @@ struct LyricsEditorView: View {
     private var compactTimingHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             timingHeaderText
-            timingActionRows
+            timingActionRow
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
@@ -467,62 +466,40 @@ struct LyricsEditorView: View {
         }
     }
 
-    private var timingActionRows: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 8) {
-                if song.appleMusicURL != nil {
-                    openInMusicTimingButton
-                }
-                playFromLineTimingButton
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("timingPrimaryActionRow")
-
-            HStack(spacing: 8) {
-                removeTimingButton
-                Spacer(minLength: 8)
-                clearTimingSelectionButton
-            }
-            .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("timingSecondaryActionRow")
+    private var timingActionRow: some View {
+        HStack(spacing: 6) {
+            playFromLineTimingButton
+            pauseTimingButton
+            removeTimingButton
+            clearTimingSelectionButton
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("timingActionRows")
-    }
-
-    @ViewBuilder
-    private var openInMusicTimingButton: some View {
-        if song.appleMusicURL != nil {
-            Button("Open App") {
-                Task { await playback.play(song, from: targetTimestamp) }
-            }
-            .help("Open song in Music")
-            .accessibilityLabel("Open song in Music")
-            .accessibilityIdentifier("openInMusicTimingButton")
-            .fixedSize(horizontal: true, vertical: false)
-        }
+        .accessibilityIdentifier("timingActionRow")
     }
 
     private var playFromLineTimingButton: some View {
         Button {
             Task {
-                if playback.isPlaying(song) {
-                    await playback.togglePlayback(for: song)
-                } else {
-                    await playback.seekAndPlay(song, to: targetTimestamp)
-                }
+                await playback.seekAndPlay(song, to: targetTimestamp)
             }
         } label: {
-            Label(
-                playback.isPlaying(song) ? "Pause" : "Play from Line",
-                systemImage: playback.isPlaying(song) ? "pause.fill" : "play.fill"
-            )
+            Label("Play from Line", systemImage: "play.fill")
         }
         .accessibilityIdentifier("playFromLineTimingButton")
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var pauseTimingButton: some View {
+        Button("Pause") {
+            Task {
+                guard playback.isPlaying(song) else { return }
+                await playback.togglePlayback(for: song)
+            }
+        }
+        .disabled(!playback.isPlaying(song))
+        .accessibilityIdentifier("pauseTimingButton")
         .fixedSize(horizontal: true, vertical: false)
     }
 
@@ -536,16 +513,14 @@ struct LyricsEditorView: View {
     }
 
     private var clearTimingSelectionButton: some View {
-        Button(role: .cancel) {
+        Button("Cancel", role: .cancel) {
             clearLineSelection()
-        } label: {
-            Image(systemName: "xmark")
-                .frame(width: 16)
         }
         .disabled(selectedLineIDs.isEmpty)
         .help("Clear line selection")
         .accessibilityLabel("Clear line selection")
         .accessibilityIdentifier("clearTimingSelectionButton")
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var wideTimingControls: some View {
@@ -1119,6 +1094,85 @@ private struct TimingPlaybackIdentity: Equatable {
     var title: String
     var artist: String
     var appleMusicURL: URL?
+}
+
+private struct ModifiedLineClickMonitor: NSViewRepresentable {
+    let onClick: (NSEvent.ModifierFlags) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onClick: onClick)
+    }
+
+    func makeNSView(context: Context) -> PassthroughTrackingView {
+        let view = PassthroughTrackingView()
+        view.setAccessibilityElement(false)
+        context.coordinator.trackedView = view
+        context.coordinator.installMonitor()
+        return view
+    }
+
+    func updateNSView(_ view: PassthroughTrackingView, context: Context) {
+        context.coordinator.onClick = onClick
+    }
+
+    static func dismantleNSView(_ view: PassthroughTrackingView, coordinator: Coordinator) {
+        coordinator.removeMonitor()
+    }
+
+    @MainActor
+    final class Coordinator {
+        weak var trackedView: NSView?
+        var onClick: (NSEvent.ModifierFlags) -> Void
+        private var monitor: Any?
+        private var isConsumingClick = false
+
+        init(onClick: @escaping (NSEvent.ModifierFlags) -> Void) {
+            self.onClick = onClick
+        }
+
+        func installMonitor() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseDown, .leftMouseUp]
+            ) { [weak self] event in
+                guard let self else { return event }
+                return self.handle(event)
+            }
+        }
+
+        func removeMonitor() {
+            guard let monitor else { return }
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+
+        private func handle(_ event: NSEvent) -> NSEvent? {
+            if event.type == .leftMouseUp, isConsumingClick {
+                isConsumingClick = false
+                return nil
+            }
+            guard event.type == .leftMouseDown else { return event }
+
+            let modifiers = event.modifierFlags
+            guard modifiers.contains(.command) || modifiers.contains(.shift),
+                  let trackedView,
+                  let trackedWindow = trackedView.window,
+                  event.window === trackedWindow else {
+                return event
+            }
+            let location = trackedView.convert(event.locationInWindow, from: nil)
+            guard trackedView.bounds.contains(location) else { return event }
+            isConsumingClick = true
+            onClick(modifiers)
+            return nil
+        }
+    }
+
+    final class PassthroughTrackingView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            nil
+        }
+    }
 }
 
 private struct EditPanelOutsideClickMonitor: NSViewRepresentable {

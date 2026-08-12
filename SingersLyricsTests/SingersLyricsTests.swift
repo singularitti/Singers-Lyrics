@@ -960,7 +960,7 @@ private actor MockMusicController: MusicControlling {
         }
         return mostRecentState
     }
-    func openTrack(_ url: URL) async -> MusicActionResult {
+    func openTrack(_ url: URL, title: String, artist: String) async -> MusicActionResult {
         openCount += 1
         return MusicActionResult(succeeded: true, permissionDenied: false)
     }

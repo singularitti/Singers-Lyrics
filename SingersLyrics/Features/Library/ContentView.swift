@@ -6,7 +6,15 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var songToDelete: Song?
     @State private var songForLink: Song?
+    @State private var importSongID: UUID?
+    @State private var exportSong: Song?
+    @State private var exportError: String?
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @State private var expandedWorkspaceColumn: WorkspaceColumn?
+    @State private var editorColumnMeasuredWidth: CGFloat = 0
+    @State private var playerColumnMeasuredWidth: CGFloat = 0
+    @State private var workspaceResizeRequest: WorkspaceResizeRequest?
+    @State private var workspaceResizeSequence = 0
     @AppStorage(PreferenceKey.sortMode) private var sortModeRaw = SongSortMode.manual.rawValue
 
     private var sortMode: SongSortMode {
@@ -23,50 +31,125 @@ struct ContentView: View {
     }
 
     var body: some View {
+        splitView
+            .navigationSplitViewStyle(.prominentDetail)
+            .frame(minWidth: 1_180, minHeight: 560)
+            .sheet(isPresented: Binding(
+                get: { model.isCreatingSong },
+                set: { model.isCreatingSong = $0 }
+            )) {
+                AppleMusicLinkSheet(song: nil, lookup: metadataLookup) { url, metadata in
+                    model.createSong(appleMusicURL: url, metadata: metadata)
+                }
+            }
+            .sheet(item: $songForLink) { song in
+                AppleMusicLinkSheet(song: song, lookup: metadataLookup) { url, metadata in
+                    var updated = song
+                    updated.appleMusicURL = url
+                    updated.title = metadata.title
+                    updated.artist = metadata.artist
+                    model.replaceSong(updated)
+                }
+            }
+            .sheet(isPresented: Binding(
+                get: { importSongID != nil },
+                set: { if !$0 { importSongID = nil } }
+            )) {
+                ImportLyricsSheet { lines in
+                    guard let importSongID,
+                          var song = model.song(withID: importSongID) else { return }
+                    song.lines = lines.isEmpty ? [.blank()] : lines
+                    model.replaceSong(song)
+                    self.importSongID = nil
+                }
+            }
+            .fileExporter(
+                isPresented: Binding(
+                    get: { exportSong != nil },
+                    set: { if !$0 { exportSong = nil } }
+                ),
+                document: exportSong.map { LRCFileDocument(song: $0) },
+                contentType: .lrcLyrics,
+                defaultFilename: exportSong.map { exportFilename(for: $0) }
+            ) { result in
+                if case let .failure(error) = result {
+                    exportError = error.localizedDescription
+                }
+                exportSong = nil
+            }
+            .alert("Lyrics Could Not Be Exported", isPresented: Binding(
+                get: { exportError != nil },
+                set: { if !$0 { exportError = nil } }
+            )) {
+                Button("OK", role: .cancel) { exportError = nil }
+            } message: {
+                Text(exportError ?? "Unknown error")
+            }
+            .alert("Delete This Song?", isPresented: Binding(
+                get: { songToDelete != nil },
+                set: { if !$0 { songToDelete = nil } }
+            ), presenting: songToDelete) { song in
+                Button("Delete", role: .destructive) {
+                    model.deleteSong(song.id)
+                    songToDelete = nil
+                }
+                Button("Cancel", role: .cancel) { songToDelete = nil }
+            } message: { song in
+                Text("“\(song.title.isEmpty ? "Untitled" : song.title)” and its lyrics will be permanently removed.")
+            }
+            .alert("Library Error", isPresented: Binding(
+                get: { model.storageIssue != nil },
+                set: { if !$0 { model.storageIssue = nil } }
+            )) {
+                Button("Reveal Library in Finder") { model.revealLibrary() }
+                Button("Dismiss", role: .cancel) { model.storageIssue = nil }
+            } message: {
+                Text(model.storageIssue?.message ?? "The library is unavailable.")
+            }
+    }
+
+    private var splitView: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 300)
+        } content: {
+            GeometryReader { geometry in
+                editorColumn
+                    .frame(
+                        width: geometry.size.width,
+                        height: geometry.size.height,
+                        alignment: .top
+                    )
+                    .clipped()
+            }
+            .onGeometryChange(for: CGFloat.self, of: { proxy in
+                proxy.size.width
+            }, action: editorColumnWidthChanged)
+            .navigationSplitViewColumnWidth(
+                min: editorColumnWidth.minimum,
+                ideal: editorColumnWidth.ideal,
+                max: editorColumnWidth.maximum
+            )
         } detail: {
-            detail
-        }
-        .frame(minWidth: 820, minHeight: 560)
-        .sheet(isPresented: Binding(
-            get: { model.isCreatingSong },
-            set: { model.isCreatingSong = $0 }
-        )) {
-            AppleMusicLinkSheet(song: nil, lookup: metadataLookup) { url, metadata in
-                model.createSong(appleMusicURL: url, metadata: metadata)
+            detailToolbarHost {
+                GeometryReader { geometry in
+                    playerColumn
+                        .frame(
+                            width: geometry.size.width,
+                            height: geometry.size.height,
+                            alignment: .top
+                        )
+                        .clipped()
+                }
+                .onGeometryChange(for: CGFloat.self, of: { proxy in
+                    proxy.size.width
+                }, action: playerColumnWidthChanged)
             }
-        }
-        .sheet(item: $songForLink) { song in
-            AppleMusicLinkSheet(song: song, lookup: metadataLookup) { url, metadata in
-                var updated = song
-                updated.appleMusicURL = url
-                updated.title = metadata.title
-                updated.artist = metadata.artist
-                model.replaceSong(updated)
-            }
-        }
-        .alert("Delete This Song?", isPresented: Binding(
-            get: { songToDelete != nil },
-            set: { if !$0 { songToDelete = nil } }
-        ), presenting: songToDelete) { song in
-            Button("Delete", role: .destructive) {
-                model.deleteSong(song.id)
-                songToDelete = nil
-            }
-            Button("Cancel", role: .cancel) { songToDelete = nil }
-        } message: { song in
-            Text("“\(song.title.isEmpty ? "Untitled" : song.title)” and its lyrics will be permanently removed.")
-        }
-        .alert("Library Error", isPresented: Binding(
-            get: { model.storageIssue != nil },
-            set: { if !$0 { model.storageIssue = nil } }
-        )) {
-            Button("Reveal Library in Finder") { model.revealLibrary() }
-            Button("Dismiss", role: .cancel) { model.storageIssue = nil }
-        } message: {
-            Text(model.storageIssue?.message ?? "The library is unavailable.")
+            .navigationSplitViewColumnWidth(
+                min: playerColumnWidth.minimum,
+                ideal: playerColumnWidth.ideal,
+                max: playerColumnWidth.maximum
+            )
         }
     }
 
@@ -121,7 +204,6 @@ struct ContentView: View {
                     )
                 }
             }
-            .searchable(text: $searchText, prompt: "Search songs")
             .accessibilityIdentifier("songList")
 
             if !model.library.songs.isEmpty {
@@ -142,169 +224,287 @@ struct ContentView: View {
             }
         }
         .navigationTitle("Singers Lyrics")
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    model.isCreatingSong = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .help("New Song from Apple Music")
-                .accessibilityIdentifier("newSongButton")
-
-            }
-        }
     }
 
     @ViewBuilder
-    private var detail: some View {
+    private var editorColumn: some View {
         if !model.isLoaded {
             ProgressView("Opening Library…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let binding = model.bindingForSelectedSong() {
-            SongWorkspaceView(
-                song: binding,
-                libraryPanelVisible: columnVisibility != .detailOnly
-            ) {
-                songForLink = binding.wrappedValue
-            } onToggleLibrary: {
-                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
-            } onDelete: {
-                songToDelete = binding.wrappedValue
+            VStack(spacing: 0) {
+                songMetadataHeader(for: binding.wrappedValue)
+
+                LyricsEditorView(song: binding)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(.background)
         } else {
-            ContentUnavailableView {
-                Label("No Song Selected", systemImage: "music.note")
-            } description: {
-                Text("Add a song from Apple Music or select one from the sidebar.")
-            } actions: {
-                Button("New Song from Apple Music") { model.isCreatingSong = true }
+            ContentUnavailableView(
+                "No Song Selected",
+                systemImage: "text.quote",
+                description: Text("Select a song to edit its lyrics.")
+            )
+        }
+    }
+
+    private var playerColumn: some View {
+        Group {
+            if !model.isLoaded {
+                ProgressView("Opening Library…")
+            } else if let song = selectedSong {
+                PlayerView(song: song)
+            } else {
+                ContentUnavailableView {
+                    Label("No Song Selected", systemImage: "music.note")
+                } description: {
+                    Text("Add a song from Apple Music or select one from the library.")
+                } actions: {
+                    Button("New Song from Apple Music") {
+                        model.isCreatingSong = true
+                    }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("emptyNewSongButton")
+                }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .backgroundExtensionEffect()
     }
-}
 
-private struct SongWorkspaceView: View {
-    @Binding var song: Song
-    let libraryPanelVisible: Bool
-    let onEditLink: () -> Void
-    let onToggleLibrary: () -> Void
-    let onDelete: () -> Void
-
-    @AppStorage(PreferenceKey.editorPanelVisible) private var editorPanelVisible = true
-    @AppStorage(PreferenceKey.previewPanelVisible) private var previewPanelVisible = true
-    @State private var showsImport = false
-    @State private var showsExport = false
-    @State private var exportError: String?
-
-    var body: some View {
-        HSplitView {
-            if editorPanelVisible {
-                LyricsEditorView(song: $song)
-                    .frame(minWidth: 420, idealWidth: 620)
+    private func detailToolbarHost<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .toolbar {
+                detailToolbar
             }
-            if previewPanelVisible {
-                PlayerView(song: song)
-                    .frame(minWidth: 340, idealWidth: 520)
+            .searchable(text: $searchText, placement: .toolbar, prompt: "Search songs")
+            .searchPresentationToolbarBehavior(.avoidHidingContent)
+            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+    }
+
+    @ToolbarContentBuilder
+    private var detailToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                toggleWorkspaceColumn(.editor)
+            } label: {
+                Image(systemName: "rectangle.leadinghalf.inset.filled")
             }
+            .help(expandedWorkspaceColumn == .editor ? "Balance Workspace Columns" : "Expand Editor Column")
+            .accessibilityLabel(
+                expandedWorkspaceColumn == .editor ? "Balance Workspace Columns" : "Expand Editor Column"
+            )
+            .accessibilityIdentifier("toggleEditorPanelButton")
+            .accessibilityValue(expandedWorkspaceColumn == .editor ? "Expanded" : "Balanced")
+
+            Button {
+                toggleWorkspaceColumn(.player)
+            } label: {
+                Image(systemName: "rectangle.trailinghalf.inset.filled")
+            }
+            .help(expandedWorkspaceColumn == .player ? "Balance Workspace Columns" : "Expand Player Column")
+            .accessibilityLabel(
+                expandedWorkspaceColumn == .player ? "Balance Workspace Columns" : "Expand Player Column"
+            )
+            .accessibilityIdentifier("togglePreviewPanelButton")
+            .accessibilityValue(expandedWorkspaceColumn == .player ? "Expanded" : "Balanced")
         }
-        .sheet(isPresented: $showsImport) {
-            ImportLyricsSheet { lines in
-                song.lines = lines.isEmpty ? [.blank()] : lines
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                importSongID = selectedSong?.id
+            } label: {
+                Image(systemName: "square.and.arrow.down")
             }
-        }
-        .fileExporter(
-            isPresented: $showsExport,
-            document: LRCFileDocument(song: song),
-            contentType: .lrcLyrics,
-            defaultFilename: exportFilename
-        ) { result in
-            if case let .failure(error) = result {
-                exportError = error.localizedDescription
+            .help("Import Lyrics")
+            .accessibilityLabel("Import Lyrics")
+            .accessibilityIdentifier("importLyricsButton")
+            .disabled(selectedSong == nil)
+
+            Button {
+                exportSong = selectedSong
+            } label: {
+                Image(systemName: "square.and.arrow.up")
             }
+            .help("Export LRC")
+            .accessibilityLabel("Export LRC")
+            .accessibilityIdentifier("exportLyricsButton")
+            .disabled(selectedSong == nil)
         }
-        .alert("Lyrics Could Not Be Exported", isPresented: Binding(
-            get: { exportError != nil },
-            set: { if !$0 { exportError = nil } }
-        )) {
-            Button("OK", role: .cancel) { exportError = nil }
-        } message: {
-            Text(exportError ?? "Unknown error")
-        }
-        .navigationTitle(metadataTitle)
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    showsImport = true
-                } label: {
-                    Image(systemName: "square.and.arrow.down")
-                }
-                .help("Import Lyrics")
-                .accessibilityLabel("Import Lyrics")
-                .accessibilityIdentifier("importLyricsButton")
 
-                Button {
-                    showsExport = true
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .help("Export LRC")
-                .accessibilityLabel("Export LRC")
-                .accessibilityIdentifier("exportLyricsButton")
+        ToolbarSpacer(.fixed, placement: .primaryAction)
 
-                Button(action: onToggleLibrary) {
-                    Image(systemName: "sidebar.left")
-                }
-                .help(libraryPanelVisible ? "Hide Song Library" : "Show Song Library")
-                .accessibilityLabel(libraryPanelVisible ? "Hide Song Library" : "Show Song Library")
-                .accessibilityIdentifier("toggleLibraryPanelButton")
-
-                Button {
-                    editorPanelVisible.toggle()
-                } label: {
-                    Image(systemName: "rectangle.leadinghalf.inset.filled")
-                }
-                .help(editorPanelVisible ? "Hide Editor Panel" : "Show Editor Panel")
-                .disabled(editorPanelVisible && !previewPanelVisible)
-                .accessibilityLabel(editorPanelVisible ? "Hide Editor Panel" : "Show Editor Panel")
-                .accessibilityIdentifier("toggleEditorPanelButton")
-
-                Button {
-                    previewPanelVisible.toggle()
-                } label: {
-                    Image(systemName: "rectangle.trailinghalf.inset.filled")
-                }
-                .help(previewPanelVisible ? "Hide Preview Panel" : "Show Preview Panel")
-                .disabled(previewPanelVisible && !editorPanelVisible)
-                .accessibilityLabel(previewPanelVisible ? "Hide Preview Panel" : "Show Preview Panel")
-                .accessibilityIdentifier("togglePreviewPanelButton")
-
-                Button(action: onEditLink) {
-                    Image(systemName: song.appleMusicURL == nil ? "link.badge.plus" : "link")
-                }
-                .help("Apple Music Link")
-                .accessibilityIdentifier("appleMusicLinkButton")
-                .accessibilityValue(song.appleMusicURL == nil ? "No link" : "Linked")
-
-                Button(role: .destructive, action: onDelete) {
-                    Image(systemName: "trash")
-                }
-                .help("Delete Selected Song")
-                .accessibilityLabel("Delete Selected Song")
-                .accessibilityIdentifier("deleteSongButton")
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                model.isCreatingSong = true
+            } label: {
+                Image(systemName: "plus")
             }
+            .help("New Song from Apple Music")
+            .accessibilityIdentifier("newSongButton")
+
+            Button {
+                songForLink = selectedSong
+            } label: {
+                Image(systemName: selectedSong?.appleMusicURL == nil ? "link.badge.plus" : "link")
+            }
+            .help("Apple Music Link")
+            .accessibilityIdentifier("appleMusicLinkButton")
+            .accessibilityValue(selectedSong?.appleMusicURL == nil ? "No link" : "Linked")
+            .disabled(selectedSong == nil)
+
+            Button(role: .destructive) {
+                songToDelete = selectedSong
+            } label: {
+                Image(systemName: "trash")
+            }
+            .help("Delete Selected Song")
+            .accessibilityLabel("Delete Selected Song")
+            .accessibilityIdentifier("deleteSongButton")
+            .disabled(selectedSong == nil)
         }
     }
 
-    private var metadataTitle: String {
-        [song.title.isEmpty ? "Untitled" : song.title, song.artist]
-            .filter { !$0.isEmpty }
-            .joined(separator: " | ")
+    private var selectedSong: Song? {
+        guard let selectedSongID = model.selectedSongID else { return nil }
+        return model.song(withID: selectedSongID)
     }
 
-    private var exportFilename: String {
+    private var editorColumnWidth: (minimum: CGFloat?, ideal: CGFloat, maximum: CGFloat?) {
+        if let targetEditorWidth = workspaceResizeRequest?.targetEditorWidth {
+            return (
+                targetEditorWidth - 1,
+                targetEditorWidth,
+                targetEditorWidth + 1
+            )
+        }
+        return (420, 520, nil)
+    }
+
+    private var playerColumnWidth: (minimum: CGFloat?, ideal: CGFloat, maximum: CGFloat?) {
+        (420, 620, nil)
+    }
+
+    private func toggleWorkspaceColumn(_ column: WorkspaceColumn) {
+        let nextColumn: WorkspaceColumn? = expandedWorkspaceColumn == column ? nil : column
+        expandedWorkspaceColumn = nextColumn
+        workspaceResizeSequence &+= 1
+        workspaceResizeRequest = WorkspaceResizeRequest(
+            sequence: workspaceResizeSequence,
+            layout: nextColumn,
+            workspaceWidth: nil,
+            targetEditorWidth: nil
+        )
+        resolveWorkspaceResizeRequestIfPossible()
+    }
+
+    private func songMetadataHeader(for song: Song) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(song.title.isEmpty ? "Untitled" : song.title)
+                .font(.headline)
+                .lineLimit(1)
+
+            if !song.artist.isEmpty {
+                Text("|")
+                    .foregroundStyle(.tertiary)
+                Text(song.artist)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 2)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("songMetadataHeader")
+    }
+
+    private func editorColumnWidthChanged(_ width: CGFloat) {
+        let previousWidth = editorColumnMeasuredWidth
+        let hadResizeRequest = workspaceResizeRequest != nil
+        editorColumnMeasuredWidth = width
+        if hadResizeRequest {
+            resolveWorkspaceResizeRequestIfPossible()
+            scheduleWorkspaceResizeCompletionIfReached()
+        } else if previousWidth > 0, abs(previousWidth - width) > 1 {
+            expandedWorkspaceColumn = nil
+        }
+    }
+
+    private func playerColumnWidthChanged(_ width: CGFloat) {
+        let previousWidth = playerColumnMeasuredWidth
+        let hadResizeRequest = workspaceResizeRequest != nil
+        playerColumnMeasuredWidth = width
+        if hadResizeRequest {
+            resolveWorkspaceResizeRequestIfPossible()
+            scheduleWorkspaceResizeCompletionIfReached()
+        } else if previousWidth > 0, abs(previousWidth - width) > 1 {
+            expandedWorkspaceColumn = nil
+        }
+    }
+
+    private func resolveWorkspaceResizeRequestIfPossible() {
+        guard let request = workspaceResizeRequest,
+              editorColumnMeasuredWidth > 0,
+              playerColumnMeasuredWidth > 0 else { return }
+
+        let workspaceWidth = editorColumnMeasuredWidth + playerColumnMeasuredWidth
+        let editorMinimum: CGFloat = 420
+        let playerMinimum: CGFloat = 420
+        guard workspaceWidth >= editorMinimum + playerMinimum else { return }
+        if let requestedWorkspaceWidth = request.workspaceWidth,
+           request.targetEditorWidth != nil,
+           abs(requestedWorkspaceWidth - workspaceWidth) <= 1 {
+            return
+        }
+
+        let editorFraction: CGFloat = switch request.layout {
+        case .editor: 0.62
+        case .player: 0.38
+        case nil: 0.5
+        }
+        let target = min(
+            max(workspaceWidth * editorFraction, editorMinimum),
+            workspaceWidth - playerMinimum
+        )
+        workspaceResizeRequest = WorkspaceResizeRequest(
+            sequence: request.sequence,
+            layout: request.layout,
+            workspaceWidth: workspaceWidth,
+            targetEditorWidth: target
+        )
+        scheduleWorkspaceResizeCompletionIfReached()
+    }
+
+    private func scheduleWorkspaceResizeCompletionIfReached() {
+        guard let request = workspaceResizeRequest,
+              let targetEditorWidth = request.targetEditorWidth,
+              abs(editorColumnMeasuredWidth - targetEditorWidth) <= 4 else { return }
+
+        let completedSequence = request.sequence
+        Task { @MainActor in
+            await Task.yield()
+            guard let currentRequest = self.workspaceResizeRequest,
+                  currentRequest.sequence == completedSequence,
+                  let currentTarget = currentRequest.targetEditorWidth,
+                  abs(currentTarget - targetEditorWidth) <= 0.5,
+                  abs(self.editorColumnMeasuredWidth - targetEditorWidth) <= 4 else { return }
+            self.workspaceResizeRequest = nil
+        }
+    }
+
+    private func exportFilename(for song: Song) -> String {
         let source = song.title.isEmpty ? "Lyrics" : song.title
         let forbidden = CharacterSet(charactersIn: "/:")
         let safe = source
@@ -313,6 +513,18 @@ private struct SongWorkspaceView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return (safe.isEmpty ? "Lyrics" : safe) + ".lrc"
     }
+}
+
+private enum WorkspaceColumn {
+    case editor
+    case player
+}
+
+private struct WorkspaceResizeRequest {
+    let sequence: Int
+    let layout: WorkspaceColumn?
+    let workspaceWidth: CGFloat?
+    let targetEditorWidth: CGFloat?
 }
 
 private struct AppleMusicLinkSheet: View {

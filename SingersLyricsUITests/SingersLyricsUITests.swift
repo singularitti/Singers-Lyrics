@@ -215,7 +215,6 @@ final class SingersLyricsUITests: XCTestCase {
         var firstRow = identified("lyricLine-0", in: app)
         let thirdRow = identified("lyricLine-2", in: app)
         let firstTime = identified("lineTime-0", in: app)
-        let thirdTime = identified("lineTime-2", in: app)
         let firstLine = app.textViews["lyricText-0"]
         let firstAnnotation = app.textFields["annotation-0"]
 
@@ -240,7 +239,7 @@ final class SingersLyricsUITests: XCTestCase {
 
         firstTime.click()
         XCUIElement.perform(withKeyModifiers: .command) {
-            thirdTime.click()
+            thirdRow.click()
         }
         XCTAssertTrue(firstRow.isSelected)
         XCTAssertTrue(thirdRow.isSelected)
@@ -259,7 +258,7 @@ final class SingersLyricsUITests: XCTestCase {
 
         firstTime.click()
         XCUIElement.perform(withKeyModifiers: .shift) {
-            thirdTime.click()
+            thirdRow.click()
         }
         XCTAssertTrue(identified("lyricLine-1", in: app).isSelected)
         XCTAssertEqual(bulkDelete.label, "Delete 3 lines")
@@ -462,14 +461,14 @@ final class SingersLyricsUITests: XCTestCase {
         let playFromLine = identified("playFromLineTimingButton", in: app)
         let removeTiming = identified("removeTimingButton", in: app)
         let clearSelection = identified("clearTimingSelectionButton", in: app)
-        var primaryActionRow = identified("timingPrimaryActionRow", in: app)
-        var secondaryActionRow = identified("timingSecondaryActionRow", in: app)
+        var actionRow = identified("timingActionRow", in: app)
         XCTAssertEqual(openApp.label, "Open song in Music")
         XCTAssertEqual(clearSelection.label, "Clear line selection")
-        XCTAssertEqual(openApp.frame.midY, playFromLine.frame.midY, accuracy: 3)
-        XCTAssertGreaterThanOrEqual(secondaryActionRow.frame.minY, primaryActionRow.frame.maxY)
-        XCTAssertEqual(removeTiming.frame.minX, secondaryActionRow.frame.minX, accuracy: 3)
-        XCTAssertEqual(clearSelection.frame.maxX, secondaryActionRow.frame.maxX, accuracy: 3)
+        for action in [playFromLine, removeTiming, clearSelection] {
+            XCTAssertEqual(openApp.frame.midY, action.frame.midY, accuracy: 3)
+        }
+        XCTAssertGreaterThanOrEqual(openApp.frame.minX, actionRow.frame.minX - 1)
+        XCTAssertLessThanOrEqual(clearSelection.frame.maxX, actionRow.frame.maxX + 1)
 
         let initialLineFrame = identified("lyricLine-0", in: app).frame
         let editorSplitter = app.splitters.allElementsBoundByIndex
@@ -497,19 +496,17 @@ final class SingersLyricsUITests: XCTestCase {
 
         let panelFrame = identified("timingPanel", in: app).frame
         let compactHeaderFrame = identified("compactTimingHeader", in: app).frame
-        primaryActionRow = identified("timingPrimaryActionRow", in: app)
-        secondaryActionRow = identified("timingSecondaryActionRow", in: app)
-        XCTAssertGreaterThanOrEqual(secondaryActionRow.frame.minY, primaryActionRow.frame.maxY)
-        XCTAssertEqual(removeTiming.frame.minX, secondaryActionRow.frame.minX, accuracy: 3)
-        XCTAssertEqual(clearSelection.frame.maxX, secondaryActionRow.frame.maxX, accuracy: 3)
-        XCTAssertEqual(secondaryActionRow.frame.minX, compactHeaderFrame.minX, accuracy: 3)
-        XCTAssertEqual(secondaryActionRow.frame.maxX, compactHeaderFrame.maxX, accuracy: 3)
-        XCTAssertGreaterThanOrEqual(secondaryActionRow.frame.minX, panelFrame.minX - 1)
-        XCTAssertLessThanOrEqual(secondaryActionRow.frame.maxX, panelFrame.maxX + 1)
+        actionRow = identified("timingActionRow", in: app)
+        for action in [playFromLine, removeTiming, clearSelection] {
+            XCTAssertEqual(openApp.frame.midY, action.frame.midY, accuracy: 3)
+        }
+        XCTAssertEqual(actionRow.frame.minX, compactHeaderFrame.minX, accuracy: 3)
+        XCTAssertEqual(actionRow.frame.maxX, compactHeaderFrame.maxX, accuracy: 3)
+        XCTAssertGreaterThanOrEqual(actionRow.frame.minX, panelFrame.minX - 1)
+        XCTAssertLessThanOrEqual(actionRow.frame.maxX, panelFrame.maxX + 1)
         let controlIDs = [
             "timingStatus",
-            "timingPrimaryActionRow",
-            "timingSecondaryActionRow",
+            "timingActionRow",
             "openInMusicTimingButton",
             "playFromLineTimingButton",
             "removeTimingButton",

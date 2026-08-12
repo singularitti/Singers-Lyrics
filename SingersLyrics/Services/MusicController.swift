@@ -10,7 +10,7 @@ struct MusicActionResult: Sendable {
 
 protocol MusicControlling: Sendable {
     func currentState() async -> MusicState
-    func openTrack(_ url: URL) async -> MusicActionResult
+    func openTrack(_ url: URL, title: String, artist: String) async -> MusicActionResult
     func playPause() async -> MusicState
     func seek(to seconds: Double) async -> MusicActionResult
     func seekAndPlay(to seconds: Double) async -> MusicActionResult
@@ -79,16 +79,42 @@ actor AppleMusicController: MusicControlling {
         )
     }
 
-    func openTrack(_ url: URL) async -> MusicActionResult {
-        // Send the link to Music exactly once. Opening it through NSWorkspace
-        // as well as AppleScript can create competing universal-link requests
-        // and leave Music on its AutoPlay item instead of the selected song.
+    func openTrack(_ url: URL, title: String, artist: String) async -> MusicActionResult {
         let literal = Self.appleScriptLiteral(url.absoluteString)
+        let titleLiteral = Self.appleScriptLiteral(title)
+        let artistLiteral = Self.appleScriptLiteral(artist)
         let result = run(
             """
             tell application "Music"
               activate
+
+              -- A web or universal link can open Music without changing its
+              -- current track. Prefer an exact library match so Play reliably
+              -- targets the linked song, then retain the URL as a fallback.
+              set requestedTitle to "\(titleLiteral)"
+              set requestedArtist to "\(artistLiteral)"
+              if requestedTitle is not "" then
+                try
+                  set matchingTracks to search library playlist 1 for requestedTitle only names
+                  repeat with candidateTrack in matchingTracks
+                    try
+                      set candidateTitle to name of candidateTrack
+                      set candidateArtist to artist of candidateTrack
+                      ignoring case, diacriticals, punctuation, hyphens and white space
+                        set titleMatches to candidateTitle is requestedTitle
+                        set artistMatches to requestedArtist is "" or candidateArtist is "" or candidateArtist contains requestedArtist or requestedArtist contains candidateArtist
+                      end ignoring
+                      if titleMatches and artistMatches then
+                        play candidateTrack once true
+                        return "library"
+                      end if
+                    end try
+                  end repeat
+                end try
+              end if
+
               open location "\(literal)"
+              return "link"
             end tell
             """
         )
@@ -189,7 +215,7 @@ actor AppleMusicController: MusicControlling {
 
 actor InertMusicController: MusicControlling {
     func currentState() async -> MusicState { MusicState() }
-    func openTrack(_ url: URL) async -> MusicActionResult {
+    func openTrack(_ url: URL, title: String, artist: String) async -> MusicActionResult {
         MusicActionResult(succeeded: true, permissionDenied: false)
     }
     func playPause() async -> MusicState { MusicState() }
@@ -451,7 +477,11 @@ final class MusicPlaybackModel {
             return
         }
 
-        let opened = await controller.openTrack(url)
+        let opened = await controller.openTrack(
+            url,
+            title: nextTarget.title,
+            artist: nextTarget.artist
+        )
         guard opened.succeeded else {
             lastActionFailed = true
             if opened.permissionDenied {
