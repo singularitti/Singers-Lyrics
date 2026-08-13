@@ -86,7 +86,10 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertFalse(app.buttons["sidebarEmptyNewSongButton"].exists)
         _ = createSong(in: app)
 
-        XCTAssertTrue(app.staticTexts["Looked Up Song | Looked Up Singer"].exists)
+        let metadata = identified("songMetadataHeader", in: app)
+        XCTAssertTrue(metadata.exists)
+        XCTAssertTrue(metadata.label.contains("Looked Up Song"))
+        XCTAssertTrue(metadata.label.contains("Looked Up Singer"))
         XCTAssertFalse(app.textFields["songTitleField"].exists)
         XCTAssertFalse(app.textFields["songArtistField"].exists)
         XCTAssertTrue(identified("lyricsWorkspaceView", in: app).exists)
@@ -97,10 +100,12 @@ final class SingersLyricsUITests: XCTestCase {
     }
 
     @MainActor
-    func testReadOnlyMetadataLinkEditingAndCollapsiblePanels() {
+    func testReadOnlyMetadataLinkEditingAndWorkspaceColumnSizing() {
         let app = launchApp()
         _ = createSong(in: app)
-        XCTAssertTrue(app.staticTexts["Looked Up Song | Looked Up Singer"].exists)
+        var metadata = identified("songMetadataHeader", in: app)
+        XCTAssertTrue(metadata.label.contains("Looked Up Song"))
+        XCTAssertTrue(metadata.label.contains("Looked Up Singer"))
 
         app.buttons["appleMusicLinkButton"].click()
         let link = app.textFields["appleMusicURLField"]
@@ -111,29 +116,43 @@ final class SingersLyricsUITests: XCTestCase {
         )
         app.buttons["saveAppleMusicLinkButton"].click()
         XCTAssertTrue(link.waitForNonExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Alpha | First Singer"].waitForExistence(timeout: 3))
+        metadata = identified("songMetadataHeader", in: app)
+        XCTAssertTrue(metadata.waitForExistence(timeout: 3))
+        XCTAssertTrue(metadata.label.contains("Alpha"))
+        XCTAssertTrue(metadata.label.contains("First Singer"))
         XCTAssertEqual(app.buttons["appleMusicLinkButton"].value as? String, "Linked")
 
-        let previewToggle = app.buttons["togglePreviewPanelButton"]
-        previewToggle.click()
-        XCTAssertTrue(identified("playerView", in: app).waitForNonExistence(timeout: 3))
-        XCTAssertTrue(identified("timingPanel", in: app).exists)
-        previewToggle.click()
-        XCTAssertTrue(identified("playerView", in: app).waitForExistence(timeout: 3))
+        let editor = identified("lyricsWorkspaceView", in: app)
+        let player = identified("playerView", in: app)
+        let balancedEditorWidth = editor.frame.width
+        let balancedPlayerWidth = player.frame.width
 
-        let libraryToggle = app.buttons["toggleLibraryPanelButton"]
-        libraryToggle.click()
-        XCTAssertTrue(app.buttons["deleteSongButton"].isHittable)
+        let previewToggle = app.buttons["togglePreviewPanelButton"]
+        XCTAssertEqual(previewToggle.value as? String, "Balanced")
+        previewToggle.click()
+        XCTAssertTrue(player.exists)
+        XCTAssertTrue(identified("timingPanel", in: app).exists)
+        XCTAssertEqual(previewToggle.value as? String, "Expanded")
+        XCTAssertGreaterThan(player.frame.width, balancedPlayerWidth)
+        XCTAssertLessThan(editor.frame.width, balancedEditorWidth)
+        previewToggle.click()
+        XCTAssertEqual(previewToggle.value as? String, "Balanced")
+        XCTAssertTrue(player.exists)
+        XCTAssertTrue(editor.exists)
 
         let editorToggle = app.buttons["toggleEditorPanelButton"]
+        XCTAssertEqual(editorToggle.value as? String, "Balanced")
         editorToggle.click()
-        XCTAssertTrue(app.textViews["lyricText-0"].waitForNonExistence(timeout: 3))
-        XCTAssertTrue(identified("timingPanel", in: app).waitForNonExistence(timeout: 3))
-        XCTAssertTrue(identified("lyricsWorkspaceView", in: app).waitForNonExistence(timeout: 3))
-        XCTAssertTrue(identified("playerView", in: app).exists)
+        XCTAssertEqual(editorToggle.value as? String, "Expanded")
+        XCTAssertTrue(editor.exists)
+        XCTAssertTrue(player.exists)
+        XCTAssertGreaterThan(editor.frame.width, balancedEditorWidth)
+        XCTAssertLessThan(player.frame.width, balancedPlayerWidth)
         editorToggle.click()
+        XCTAssertEqual(editorToggle.value as? String, "Balanced")
         XCTAssertTrue(app.textViews["lyricText-0"].waitForExistence(timeout: 3))
         XCTAssertTrue(identified("timingPanel", in: app).waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["deleteSongButton"].isHittable)
     }
 
     @MainActor
@@ -143,10 +162,14 @@ final class SingersLyricsUITests: XCTestCase {
 
         XCTAssertTrue(identified("timingPanel", in: app).exists)
         XCTAssertFalse(identified("textEditingPanel", in: app).exists)
+        XCTAssertFalse(identified("lineSelectionPanel", in: app).exists)
         let firstLine = app.textViews["lyricText-0"]
         firstLine.click()
-        XCTAssertTrue(identified("textEditingPanel", in: app).waitForExistence(timeout: 3))
-        XCTAssertTrue(identified("lyricLine-0", in: app).isSelected)
+        let formattingPanel = identified("textEditingPanel", in: app)
+        XCTAssertTrue(formattingPanel.waitForExistence(timeout: 3))
+        let firstRow = identified("lyricLine-0", in: app)
+        XCTAssertTrue(firstRow.isSelected)
+        XCTAssertLessThanOrEqual(formattingPanel.frame.maxY, firstRow.frame.minY + 1)
         firstLine.typeText("First")
         firstLine.typeKey("a", modifierFlags: .command)
 
@@ -223,6 +246,11 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertFalse(firstRow.isSelected)
         XCTAssertFalse(thirdRow.isSelected)
         XCTAssertFalse(identified("boldButton", in: app).exists)
+        XCTAssertFalse(identified("lineSelectionPanel", in: app).exists)
+        XCTAssertLessThanOrEqual(
+            thirdRow.frame.maxY,
+            identified("timingPanel", in: app).frame.minY + 1
+        )
         XCTAssertLessThanOrEqual(firstRow.frame.height, 70)
         XCTAssertLessThanOrEqual(firstLine.frame.minX - firstRow.frame.minX, 12)
         XCTAssertLessThanOrEqual(firstAnnotation.frame.minY - firstRow.frame.minY, 8)
@@ -457,17 +485,16 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertTrue(identified("lyricsWorkspaceView", in: app).exists)
         XCTAssertFalse(app.buttons["syncTimingButton"].exists)
 
-        let openApp = identified("openInMusicTimingButton", in: app)
         let playFromLine = identified("playFromLineTimingButton", in: app)
+        let pause = identified("pauseTimingButton", in: app)
         let removeTiming = identified("removeTimingButton", in: app)
         let clearSelection = identified("clearTimingSelectionButton", in: app)
         var actionRow = identified("timingActionRow", in: app)
-        XCTAssertEqual(openApp.label, "Open song in Music")
         XCTAssertEqual(clearSelection.label, "Clear line selection")
-        for action in [playFromLine, removeTiming, clearSelection] {
-            XCTAssertEqual(openApp.frame.midY, action.frame.midY, accuracy: 3)
+        for action in [pause, removeTiming, clearSelection] {
+            XCTAssertEqual(playFromLine.frame.midY, action.frame.midY, accuracy: 3)
         }
-        XCTAssertGreaterThanOrEqual(openApp.frame.minX, actionRow.frame.minX - 1)
+        XCTAssertGreaterThanOrEqual(playFromLine.frame.minX, actionRow.frame.minX - 1)
         XCTAssertLessThanOrEqual(clearSelection.frame.maxX, actionRow.frame.maxX + 1)
 
         let initialLineFrame = identified("lyricLine-0", in: app).frame
@@ -477,6 +504,20 @@ final class SingersLyricsUITests: XCTestCase {
         guard let editorSplitter else {
             XCTFail("Expected a splitter between the editor and preview panels")
             return
+        }
+        let workspaceToolbarButtons = [
+            app.buttons["toggleEditorPanelButton"],
+            app.buttons["togglePreviewPanelButton"],
+            app.buttons["importLyricsButton"],
+            app.buttons["exportLyricsButton"],
+            app.buttons["newSongButton"],
+            app.buttons["appleMusicLinkButton"],
+            app.buttons["deleteSongButton"],
+        ]
+        let windowFrame = app.windows.firstMatch.frame
+        for toolbarButton in workspaceToolbarButtons {
+            XCTAssertGreaterThan(toolbarButton.frame.minX, editorSplitter.frame.midX)
+            XCTAssertLessThan(toolbarButton.frame.maxX, windowFrame.maxX)
         }
 
         let dragDistance = max(120, initialLineFrame.width - 388)
@@ -497,8 +538,8 @@ final class SingersLyricsUITests: XCTestCase {
         let panelFrame = identified("timingPanel", in: app).frame
         let compactHeaderFrame = identified("compactTimingHeader", in: app).frame
         actionRow = identified("timingActionRow", in: app)
-        for action in [playFromLine, removeTiming, clearSelection] {
-            XCTAssertEqual(openApp.frame.midY, action.frame.midY, accuracy: 3)
+        for action in [pause, removeTiming, clearSelection] {
+            XCTAssertEqual(playFromLine.frame.midY, action.frame.midY, accuracy: 3)
         }
         XCTAssertEqual(actionRow.frame.minX, compactHeaderFrame.minX, accuracy: 3)
         XCTAssertEqual(actionRow.frame.maxX, compactHeaderFrame.maxX, accuracy: 3)
@@ -507,8 +548,8 @@ final class SingersLyricsUITests: XCTestCase {
         let controlIDs = [
             "timingStatus",
             "timingActionRow",
-            "openInMusicTimingButton",
             "playFromLineTimingButton",
+            "pauseTimingButton",
             "removeTimingButton",
             "clearTimingSelectionButton",
             "timingSelectionSummary",

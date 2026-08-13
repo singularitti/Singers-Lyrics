@@ -23,6 +23,8 @@ struct LyricsEditorView: View {
     @State private var isTimingUndoGrouping = false
     @State private var pollingOwner = UUID()
     @State private var hoveredLineID: UUID?
+    @State private var editingToolbarHeight: CGFloat = 0
+    @State private var timingPanelHeight: CGFloat = 168
     @AppStorage(PreferenceKey.defaultLyricsFontFamily) private var fallbackFontFamily = ""
     @FocusState private var listHasFocus: Bool
     @FocusState private var focusedAnnotationLineID: UUID?
@@ -44,13 +46,6 @@ struct LyricsEditorView: View {
                     .padding(.top, 10)
             }
 
-            editingToolbar
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, 6)
-                .fixedSize(horizontal: false, vertical: true)
-                .layoutPriority(3)
-
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 2) {
@@ -70,8 +65,9 @@ struct LyricsEditorView: View {
                         }
                     }
                     .padding(.horizontal, 12)
-                    .padding(.top, 16)
-                    .padding(.bottom, 16)
+                    .padding(.top, showsEditingToolbar ? editingToolbarHeight + 20 : 16)
+                    .padding(.bottom, timingPanelHeight + 20)
+                    .animation(.snappy(duration: 0.2), value: showsEditingToolbar)
                 }
                 .accessibilityIdentifier("lyricsScrollView")
                 .onChange(of: requestedScrollLineID) { _, id in
@@ -122,16 +118,33 @@ struct LyricsEditorView: View {
                 clearLineSelection()
                 return .handled
             }
-
-            timingPanel
-                .padding(.horizontal, 12)
-                .padding(.top, 6)
-                .padding(.bottom, 10)
-                .fixedSize(horizontal: false, vertical: true)
-                .layoutPriority(2)
+            .overlay(alignment: .top) {
+                if showsEditingToolbar {
+                    editingToolbar
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                        .onGeometryChange(for: CGFloat.self, of: { proxy in
+                            proxy.size.height
+                        }) { height in
+                            editingToolbarHeight = height
+                        }
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .overlay(alignment: .bottom) {
+                timingPanel
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
+                    .onGeometryChange(for: CGFloat.self, of: { proxy in
+                        proxy.size.height
+                    }) { height in
+                        timingPanelHeight = height
+                    }
+                }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
+        .animation(.snappy(duration: 0.2), value: showsEditingToolbar)
         .background {
             EditPanelOutsideClickMonitor {
                 clearLineSelection()
@@ -205,6 +218,7 @@ struct LyricsEditorView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .contentShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(editingLineID == nil ? "lineSelectionPanel" : "textEditingPanel")
@@ -213,6 +227,10 @@ struct LyricsEditorView: View {
     private var deleteSelectedLinesLabel: String {
         let noun = selectedLineIDs.count == 1 ? "line" : "lines"
         return "Delete \(selectedLineIDs.count) \(noun)"
+    }
+
+    private var showsEditingToolbar: Bool {
+        editingLineID != nil || selectedLineIDs.count > 1
     }
 
     private var visibleLines: [LyricLine] {
@@ -426,6 +444,7 @@ struct LyricsEditorView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .contentShape(RoundedRectangle(cornerRadius: 20))
         .shadow(color: .black.opacity(0.14), radius: 16, y: 5)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("timingPanel")
@@ -591,7 +610,7 @@ struct LyricsEditorView: View {
             Button {
                 stampCurrentLine()
             } label: {
-                Text("Tap · \(formatTime(playback.interpolatedPosition(at: context.date)))")
+                Text("Tap · \(formatTime(playback.interpolatedPosition(for: song, at: context.date)))")
                     .monospacedDigit()
                     .frame(minWidth: 112)
             }
@@ -1016,7 +1035,10 @@ struct LyricsEditorView: View {
         guard let lineID = lineID ?? targetID,
               let index = song.lines.firstIndex(where: { $0.id == lineID }) else { return }
         performTimingEdit(actionName: "Set Lyric Timing") {
-            song.lines[index].timestampSeconds = max(0, playback.interpolatedPosition() - delay)
+            song.lines[index].timestampSeconds = max(
+                0,
+                playback.interpolatedPosition(for: song) - delay
+            )
             let nextIndex = min(index + 1, song.lines.count - 1)
             let nextID = song.lines[nextIndex].id
             targetID = nextID

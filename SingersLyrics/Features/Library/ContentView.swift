@@ -131,25 +131,29 @@ struct ContentView: View {
                 max: editorColumnWidth.maximum
             )
         } detail: {
-            detailToolbarHost {
-                GeometryReader { geometry in
-                    playerColumn
-                        .frame(
-                            width: geometry.size.width,
-                            height: geometry.size.height,
-                            alignment: .top
-                        )
-                        .clipped()
-                }
-                .onGeometryChange(for: CGFloat.self, of: { proxy in
-                    proxy.size.width
-                }, action: playerColumnWidthChanged)
+            GeometryReader { geometry in
+                playerColumn
+                    .frame(
+                        width: geometry.size.width,
+                        height: geometry.size.height,
+                        alignment: .top
+                    )
+                    .clipped()
             }
+            .onGeometryChange(for: CGFloat.self, of: { proxy in
+                proxy.size.width
+            }, action: playerColumnWidthChanged)
             .navigationSplitViewColumnWidth(
                 min: playerColumnWidth.minimum,
                 ideal: playerColumnWidth.ideal,
                 max: playerColumnWidth.maximum
             )
+            .toolbar {
+                detailToolbar
+            }
+            .searchable(text: $searchText, placement: .toolbar, prompt: "Search songs")
+            .searchPresentationToolbarBehavior(.avoidHidingContent)
+            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         }
     }
 
@@ -274,22 +278,15 @@ struct ContentView: View {
         .backgroundExtensionEffect()
     }
 
-    private func detailToolbarHost<Content: View>(
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        content()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .toolbar {
-                detailToolbar
-            }
-            .searchable(text: $searchText, placement: .toolbar, prompt: "Search songs")
-            .searchPresentationToolbarBehavior(.avoidHidingContent)
-            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-    }
-
     @ToolbarContentBuilder
     private var detailToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
+        ToolbarItem(placement: .principal) {
+            Color.clear
+                .frame(width: 96, height: 1)
+                .accessibilityHidden(true)
+        }
+
+        ToolbarItemGroup(placement: .principal) {
             Button {
                 toggleWorkspaceColumn(.editor)
             } label: {
@@ -315,9 +312,9 @@ struct ContentView: View {
             .accessibilityValue(expandedWorkspaceColumn == .player ? "Expanded" : "Balanced")
         }
 
-        ToolbarSpacer(.fixed, placement: .primaryAction)
+        ToolbarSpacer(.fixed, placement: .principal)
 
-        ToolbarItemGroup(placement: .primaryAction) {
+        ToolbarItemGroup(placement: .principal) {
             Button {
                 importSongID = selectedSong?.id
             } label: {
@@ -339,9 +336,9 @@ struct ContentView: View {
             .disabled(selectedSong == nil)
         }
 
-        ToolbarSpacer(.fixed, placement: .primaryAction)
+        ToolbarSpacer(.fixed, placement: .principal)
 
-        ToolbarItemGroup(placement: .primaryAction) {
+        ToolbarItemGroup(placement: .principal) {
             Button {
                 model.isCreatingSong = true
             } label: {
@@ -426,31 +423,30 @@ struct ContentView: View {
         .padding(.top, 12)
         .padding(.bottom, 2)
         .fixedSize(horizontal: false, vertical: true)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            [song.title.isEmpty ? "Untitled" : song.title, song.artist]
+                .filter { !$0.isEmpty }
+                .joined(separator: " | ")
+        )
         .accessibilityIdentifier("songMetadataHeader")
     }
 
     private func editorColumnWidthChanged(_ width: CGFloat) {
-        let previousWidth = editorColumnMeasuredWidth
         let hadResizeRequest = workspaceResizeRequest != nil
         editorColumnMeasuredWidth = width
         if hadResizeRequest {
             resolveWorkspaceResizeRequestIfPossible()
             scheduleWorkspaceResizeCompletionIfReached()
-        } else if previousWidth > 0, abs(previousWidth - width) > 1 {
-            expandedWorkspaceColumn = nil
         }
     }
 
     private func playerColumnWidthChanged(_ width: CGFloat) {
-        let previousWidth = playerColumnMeasuredWidth
         let hadResizeRequest = workspaceResizeRequest != nil
         playerColumnMeasuredWidth = width
         if hadResizeRequest {
             resolveWorkspaceResizeRequestIfPossible()
             scheduleWorkspaceResizeCompletionIfReached()
-        } else if previousWidth > 0, abs(previousWidth - width) > 1 {
-            expandedWorkspaceColumn = nil
         }
     }
 

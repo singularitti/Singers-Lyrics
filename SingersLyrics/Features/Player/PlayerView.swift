@@ -17,7 +17,7 @@ struct PlayerView: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30)) { context in
-            let position = playback.interpolatedPosition(at: context.date)
+            let position = playback.interpolatedPosition(for: song, at: context.date)
             VStack(spacing: 0) {
                 if playback.state.permissionDenied {
                     permissionBanner

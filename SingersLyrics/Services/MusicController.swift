@@ -432,6 +432,16 @@ final class MusicPlaybackModel {
         )
     }
 
+    func interpolatedPosition(for song: Song, at date: Date = Date()) -> Double {
+        if issue == .unexpectedTrack {
+            return state.position
+        }
+        guard isAcceptedTargetState(state, target: PlaybackTarget(song: song)) else {
+            return 0
+        }
+        return interpolatedPosition(at: date)
+    }
+
     func isPlaying(_ song: Song) -> Bool {
         state.state == .playing
             && isAcceptedTargetState(state, target: PlaybackTarget(song: song))
@@ -762,10 +772,9 @@ final class MusicPlaybackModel {
         _ sample: MusicState,
         target nextTarget: PlaybackTarget
     ) -> Bool {
-        if sessionEstablished,
-           target?.songID == nextTarget.songID,
-           isSameSessionTrack(sample, target: nextTarget) {
-            return true
+        guard issue != .unexpectedTrack else { return false }
+        if sessionEstablished, target?.songID == nextTarget.songID {
+            return isSameSessionTrack(sample, target: nextTarget)
         }
         return nextTarget.matches(sample)
     }

@@ -648,6 +648,83 @@ final class SingersLyricsTests: XCTestCase {
     }
 
     @MainActor
+    func testSongAwarePlaybackPositionIgnoresAnUnrelatedCurrentTrack() async {
+        let song = linkedSong(title: "Expected", artist: "Singer")
+        let controller = MockMusicController(states: [
+            MusicState(
+                state: .playing,
+                position: 42,
+                duration: 180,
+                trackName: "Another Track",
+                trackArtist: "Another Singer",
+                trackPersistentID: "OTHER"
+            ),
+        ])
+        let model = MusicPlaybackModel(controller: controller)
+        model.beginMonitoring(song)
+
+        await model.refresh()
+
+        XCTAssertEqual(model.interpolatedPosition(for: song), 0)
+        XCTAssertFalse(model.isPlaying(song))
+    }
+
+    @MainActor
+    func testSongAwarePlaybackPositionTracksTheEstablishedSong() async {
+        let song = linkedSong(title: "Expected", artist: "Singer")
+        let controller = MockMusicController(states: [
+            MusicState(
+                state: .paused,
+                position: 42,
+                duration: 180,
+                trackName: "Expected",
+                trackArtist: "Singer",
+                trackPersistentID: "EXPECTED"
+            ),
+        ])
+        let model = MusicPlaybackModel(controller: controller)
+        model.beginMonitoring(song)
+
+        await model.refresh()
+
+        XCTAssertEqual(model.interpolatedPosition(for: song), 42)
+    }
+
+    @MainActor
+    func testSongAwarePlaybackPositionRejectsANewPersistentIDWithMatchingMetadata() async {
+        let song = linkedSong(title: "Expected", artist: "Singer")
+        let controller = MockMusicController(states: [
+            MusicState(
+                state: .playing,
+                position: 4,
+                duration: 180,
+                trackName: "Expected",
+                trackArtist: "Singer",
+                trackPersistentID: "ORIGINAL"
+            ),
+            MusicState(
+                state: .playing,
+                position: 42,
+                duration: 180,
+                trackName: "Expected",
+                trackArtist: "Singer",
+                trackPersistentID: "DIFFERENT"
+            ),
+        ])
+        let model = MusicPlaybackModel(controller: controller)
+        model.beginMonitoring(song)
+
+        await model.refresh()
+        await model.refresh()
+
+        let stopCount = await controller.recordedStopCount()
+        XCTAssertEqual(model.interpolatedPosition(for: song), 4)
+        XCTAssertFalse(model.isPlaying(song))
+        XCTAssertEqual(model.issue, .unexpectedTrack)
+        XCTAssertEqual(stopCount, 1)
+    }
+
+    @MainActor
     func testPlayAfterUnexpectedTrackReopensSelectedLink() async {
         let song = linkedSong(title: "Expected", artist: "Singer")
         let controller = MockMusicController(states: [
