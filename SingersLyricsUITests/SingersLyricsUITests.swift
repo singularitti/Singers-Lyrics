@@ -100,7 +100,7 @@ final class SingersLyricsUITests: XCTestCase {
     }
 
     @MainActor
-    func testReadOnlyMetadataLinkEditingAndWorkspaceColumnSizing() {
+    func testReadOnlyMetadataLinkEditingAndWorkspaceColumnVisibility() {
         let app = launchApp()
         _ = createSong(in: app)
         var metadata = identified("songMetadataHeader", in: app)
@@ -124,33 +124,29 @@ final class SingersLyricsUITests: XCTestCase {
 
         let editor = identified("lyricsWorkspaceView", in: app)
         let player = identified("playerView", in: app)
-        let balancedEditorWidth = editor.frame.width
-        let balancedPlayerWidth = player.frame.width
 
         let previewToggle = app.buttons["togglePreviewPanelButton"]
-        XCTAssertEqual(previewToggle.value as? String, "Balanced")
+        XCTAssertEqual(previewToggle.value as? String, "Editor and Player")
         previewToggle.click()
         XCTAssertTrue(player.exists)
+        XCTAssertTrue(editor.waitForNonExistence(timeout: 3))
+        XCTAssertEqual(previewToggle.value as? String, "Player Only")
+        previewToggle.click()
+        XCTAssertEqual(previewToggle.value as? String, "Editor and Player")
+        XCTAssertTrue(player.waitForExistence(timeout: 3))
+        XCTAssertTrue(editor.waitForExistence(timeout: 3))
         XCTAssertTrue(identified("timingPanel", in: app).exists)
-        XCTAssertEqual(previewToggle.value as? String, "Expanded")
-        XCTAssertGreaterThan(player.frame.width, balancedPlayerWidth)
-        XCTAssertLessThan(editor.frame.width, balancedEditorWidth)
-        previewToggle.click()
-        XCTAssertEqual(previewToggle.value as? String, "Balanced")
-        XCTAssertTrue(player.exists)
-        XCTAssertTrue(editor.exists)
 
         let editorToggle = app.buttons["toggleEditorPanelButton"]
-        XCTAssertEqual(editorToggle.value as? String, "Balanced")
+        XCTAssertEqual(editorToggle.value as? String, "Editor and Player")
         editorToggle.click()
-        XCTAssertEqual(editorToggle.value as? String, "Expanded")
-        XCTAssertTrue(editor.exists)
-        XCTAssertTrue(player.exists)
-        XCTAssertGreaterThan(editor.frame.width, balancedEditorWidth)
-        XCTAssertLessThan(player.frame.width, balancedPlayerWidth)
+        XCTAssertEqual(editorToggle.value as? String, "Editor Only")
+        XCTAssertTrue(editor.waitForExistence(timeout: 3))
+        XCTAssertTrue(player.waitForNonExistence(timeout: 3))
         editorToggle.click()
-        XCTAssertEqual(editorToggle.value as? String, "Balanced")
+        XCTAssertEqual(editorToggle.value as? String, "Editor and Player")
         XCTAssertTrue(app.textViews["lyricText-0"].waitForExistence(timeout: 3))
+        XCTAssertTrue(player.waitForExistence(timeout: 3))
         XCTAssertTrue(identified("timingPanel", in: app).waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["deleteSongButton"].isHittable)
     }
@@ -515,10 +511,21 @@ final class SingersLyricsUITests: XCTestCase {
             app.buttons["deleteSongButton"],
         ]
         let windowFrame = app.windows.firstMatch.frame
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.exists)
         for toolbarButton in workspaceToolbarButtons {
             XCTAssertGreaterThan(toolbarButton.frame.minX, editorSplitter.frame.midX)
             XCTAssertLessThan(toolbarButton.frame.maxX, windowFrame.maxX)
         }
+        XCTAssertGreaterThan(searchField.frame.minX, editorSplitter.frame.midX)
+        XCTAssertLessThan(searchField.frame.maxX, windowFrame.maxX)
+        let toolbarMinimumX = workspaceToolbarButtons.map(\.frame.minX).min() ?? 0
+        let toolbarMaximumX = workspaceToolbarButtons.map(\.frame.maxX).max() ?? 0
+        let searchGap = min(
+            abs(searchField.frame.minX - toolbarMaximumX),
+            abs(toolbarMinimumX - searchField.frame.maxX)
+        )
+        XCTAssertLessThanOrEqual(searchGap, 32)
 
         let dragDistance = max(120, initialLineFrame.width - 388)
         let dragStart = editorSplitter.coordinate(

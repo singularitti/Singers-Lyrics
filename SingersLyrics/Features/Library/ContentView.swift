@@ -10,11 +10,7 @@ struct ContentView: View {
     @State private var exportSong: Song?
     @State private var exportError: String?
     @State private var columnVisibility = NavigationSplitViewVisibility.all
-    @State private var expandedWorkspaceColumn: WorkspaceColumn?
-    @State private var editorColumnMeasuredWidth: CGFloat = 0
-    @State private var playerColumnMeasuredWidth: CGFloat = 0
-    @State private var workspaceResizeRequest: WorkspaceResizeRequest?
-    @State private var workspaceResizeSequence = 0
+    @State private var workspaceLayout = WorkspaceLayout.both
     @AppStorage(PreferenceKey.sortMode) private var sortModeRaw = SongSortMode.manual.rawValue
 
     private var sortMode: SongSortMode {
@@ -112,48 +108,31 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 300)
-        } content: {
-            GeometryReader { geometry in
-                editorColumn
-                    .frame(
-                        width: geometry.size.width,
-                        height: geometry.size.height,
-                        alignment: .top
-                    )
-                    .clipped()
-            }
-            .onGeometryChange(for: CGFloat.self, of: { proxy in
-                proxy.size.width
-            }, action: editorColumnWidthChanged)
-            .navigationSplitViewColumnWidth(
-                min: editorColumnWidth.minimum,
-                ideal: editorColumnWidth.ideal,
-                max: editorColumnWidth.maximum
-            )
         } detail: {
-            GeometryReader { geometry in
+            workspace
+                .toolbar {
+                    detailToolbar
+                }
+                .searchable(text: $searchText, placement: .toolbar, prompt: "Search songs")
+                .searchPresentationToolbarBehavior(.avoidHidingContent)
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        }
+    }
+
+    @ViewBuilder
+    private var workspace: some View {
+        switch workspaceLayout {
+        case .both:
+            HSplitView {
+                editorColumn
+                    .frame(minWidth: 420, idealWidth: 520, maxWidth: .infinity)
                 playerColumn
-                    .frame(
-                        width: geometry.size.width,
-                        height: geometry.size.height,
-                        alignment: .top
-                    )
-                    .clipped()
+                    .frame(minWidth: 420, idealWidth: 620, maxWidth: .infinity)
             }
-            .onGeometryChange(for: CGFloat.self, of: { proxy in
-                proxy.size.width
-            }, action: playerColumnWidthChanged)
-            .navigationSplitViewColumnWidth(
-                min: playerColumnWidth.minimum,
-                ideal: playerColumnWidth.ideal,
-                max: playerColumnWidth.maximum
-            )
-            .toolbar {
-                detailToolbar
-            }
-            .searchable(text: $searchText, placement: .toolbar, prompt: "Search songs")
-            .searchPresentationToolbarBehavior(.avoidHidingContent)
-            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        case .editorOnly:
+            editorColumn
+        case .playerOnly:
+            playerColumn
         }
     }
 
@@ -280,41 +259,44 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var detailToolbar: some ToolbarContent {
-        ToolbarItem(placement: .principal) {
-            Color.clear
-                .frame(width: 96, height: 1)
-                .accessibilityHidden(true)
-        }
+        ToolbarSpacer(.flexible, placement: .primaryAction)
 
-        ToolbarItemGroup(placement: .principal) {
+        ToolbarItem(placement: .primaryAction) {
+            HStack(spacing: 16) {
+                workspaceToolbarButtons
+                lyricsFileToolbarButtons
+                songToolbarButtons
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    private var workspaceToolbarButtons: some View {
+        HStack(spacing: 0) {
             Button {
                 toggleWorkspaceColumn(.editor)
             } label: {
                 Image(systemName: "rectangle.leadinghalf.inset.filled")
             }
-            .help(expandedWorkspaceColumn == .editor ? "Balance Workspace Columns" : "Expand Editor Column")
-            .accessibilityLabel(
-                expandedWorkspaceColumn == .editor ? "Balance Workspace Columns" : "Expand Editor Column"
-            )
+            .help(workspaceToggleLabel(for: .editor))
+            .accessibilityLabel(workspaceToggleLabel(for: .editor))
             .accessibilityIdentifier("toggleEditorPanelButton")
-            .accessibilityValue(expandedWorkspaceColumn == .editor ? "Expanded" : "Balanced")
+            .accessibilityValue(workspaceLayout.accessibilityValue)
 
             Button {
                 toggleWorkspaceColumn(.player)
             } label: {
                 Image(systemName: "rectangle.trailinghalf.inset.filled")
             }
-            .help(expandedWorkspaceColumn == .player ? "Balance Workspace Columns" : "Expand Player Column")
-            .accessibilityLabel(
-                expandedWorkspaceColumn == .player ? "Balance Workspace Columns" : "Expand Player Column"
-            )
+            .help(workspaceToggleLabel(for: .player))
+            .accessibilityLabel(workspaceToggleLabel(for: .player))
             .accessibilityIdentifier("togglePreviewPanelButton")
-            .accessibilityValue(expandedWorkspaceColumn == .player ? "Expanded" : "Balanced")
+            .accessibilityValue(workspaceLayout.accessibilityValue)
         }
+    }
 
-        ToolbarSpacer(.fixed, placement: .principal)
-
-        ToolbarItemGroup(placement: .principal) {
+    private var lyricsFileToolbarButtons: some View {
+        HStack(spacing: 0) {
             Button {
                 importSongID = selectedSong?.id
             } label: {
@@ -335,10 +317,10 @@ struct ContentView: View {
             .accessibilityIdentifier("exportLyricsButton")
             .disabled(selectedSong == nil)
         }
+    }
 
-        ToolbarSpacer(.fixed, placement: .principal)
-
-        ToolbarItemGroup(placement: .principal) {
+    private var songToolbarButtons: some View {
+        HStack(spacing: 0) {
             Button {
                 model.isCreatingSong = true
             } label: {
@@ -374,32 +356,20 @@ struct ContentView: View {
         return model.song(withID: selectedSongID)
     }
 
-    private var editorColumnWidth: (minimum: CGFloat?, ideal: CGFloat, maximum: CGFloat?) {
-        if let targetEditorWidth = workspaceResizeRequest?.targetEditorWidth {
-            return (
-                targetEditorWidth - 1,
-                targetEditorWidth,
-                targetEditorWidth + 1
-            )
-        }
-        return (420, 520, nil)
-    }
-
-    private var playerColumnWidth: (minimum: CGFloat?, ideal: CGFloat, maximum: CGFloat?) {
-        (420, 620, nil)
-    }
-
     private func toggleWorkspaceColumn(_ column: WorkspaceColumn) {
-        let nextColumn: WorkspaceColumn? = expandedWorkspaceColumn == column ? nil : column
-        expandedWorkspaceColumn = nextColumn
-        workspaceResizeSequence &+= 1
-        workspaceResizeRequest = WorkspaceResizeRequest(
-            sequence: workspaceResizeSequence,
-            layout: nextColumn,
-            workspaceWidth: nil,
-            targetEditorWidth: nil
-        )
-        resolveWorkspaceResizeRequestIfPossible()
+        let focusedLayout: WorkspaceLayout = switch column {
+        case .editor: .editorOnly
+        case .player: .playerOnly
+        }
+        workspaceLayout = workspaceLayout == focusedLayout ? .both : focusedLayout
+    }
+
+    private func workspaceToggleLabel(for column: WorkspaceColumn) -> String {
+        let focusedLayout: WorkspaceLayout = column == .editor ? .editorOnly : .playerOnly
+        if workspaceLayout == focusedLayout {
+            return "Show Editor and Player Columns"
+        }
+        return column == .editor ? "Show Only Editor Column" : "Show Only Player Column"
     }
 
     private func songMetadataHeader(for song: Song) -> some View {
@@ -432,74 +402,6 @@ struct ContentView: View {
         .accessibilityIdentifier("songMetadataHeader")
     }
 
-    private func editorColumnWidthChanged(_ width: CGFloat) {
-        let hadResizeRequest = workspaceResizeRequest != nil
-        editorColumnMeasuredWidth = width
-        if hadResizeRequest {
-            resolveWorkspaceResizeRequestIfPossible()
-            scheduleWorkspaceResizeCompletionIfReached()
-        }
-    }
-
-    private func playerColumnWidthChanged(_ width: CGFloat) {
-        let hadResizeRequest = workspaceResizeRequest != nil
-        playerColumnMeasuredWidth = width
-        if hadResizeRequest {
-            resolveWorkspaceResizeRequestIfPossible()
-            scheduleWorkspaceResizeCompletionIfReached()
-        }
-    }
-
-    private func resolveWorkspaceResizeRequestIfPossible() {
-        guard let request = workspaceResizeRequest,
-              editorColumnMeasuredWidth > 0,
-              playerColumnMeasuredWidth > 0 else { return }
-
-        let workspaceWidth = editorColumnMeasuredWidth + playerColumnMeasuredWidth
-        let editorMinimum: CGFloat = 420
-        let playerMinimum: CGFloat = 420
-        guard workspaceWidth >= editorMinimum + playerMinimum else { return }
-        if let requestedWorkspaceWidth = request.workspaceWidth,
-           request.targetEditorWidth != nil,
-           abs(requestedWorkspaceWidth - workspaceWidth) <= 1 {
-            return
-        }
-
-        let editorFraction: CGFloat = switch request.layout {
-        case .editor: 0.62
-        case .player: 0.38
-        case nil: 0.5
-        }
-        let target = min(
-            max(workspaceWidth * editorFraction, editorMinimum),
-            workspaceWidth - playerMinimum
-        )
-        workspaceResizeRequest = WorkspaceResizeRequest(
-            sequence: request.sequence,
-            layout: request.layout,
-            workspaceWidth: workspaceWidth,
-            targetEditorWidth: target
-        )
-        scheduleWorkspaceResizeCompletionIfReached()
-    }
-
-    private func scheduleWorkspaceResizeCompletionIfReached() {
-        guard let request = workspaceResizeRequest,
-              let targetEditorWidth = request.targetEditorWidth,
-              abs(editorColumnMeasuredWidth - targetEditorWidth) <= 4 else { return }
-
-        let completedSequence = request.sequence
-        Task { @MainActor in
-            await Task.yield()
-            guard let currentRequest = self.workspaceResizeRequest,
-                  currentRequest.sequence == completedSequence,
-                  let currentTarget = currentRequest.targetEditorWidth,
-                  abs(currentTarget - targetEditorWidth) <= 0.5,
-                  abs(self.editorColumnMeasuredWidth - targetEditorWidth) <= 4 else { return }
-            self.workspaceResizeRequest = nil
-        }
-    }
-
     private func exportFilename(for song: Song) -> String {
         let source = song.title.isEmpty ? "Lyrics" : song.title
         let forbidden = CharacterSet(charactersIn: "/:")
@@ -511,16 +413,23 @@ struct ContentView: View {
     }
 }
 
-private enum WorkspaceColumn {
+private enum WorkspaceColumn: Equatable {
     case editor
     case player
 }
 
-private struct WorkspaceResizeRequest {
-    let sequence: Int
-    let layout: WorkspaceColumn?
-    let workspaceWidth: CGFloat?
-    let targetEditorWidth: CGFloat?
+private enum WorkspaceLayout: Equatable {
+    case both
+    case editorOnly
+    case playerOnly
+
+    var accessibilityValue: String {
+        switch self {
+        case .both: "Editor and Player"
+        case .editorOnly: "Editor Only"
+        case .playerOnly: "Player Only"
+        }
+    }
 }
 
 private struct AppleMusicLinkSheet: View {
