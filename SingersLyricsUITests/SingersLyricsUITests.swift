@@ -90,7 +90,11 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertTrue(metadata.exists)
         XCTAssertTrue(metadata.label.contains("Looked Up Song"))
         XCTAssertTrue(metadata.label.contains("Looked Up Singer"))
-        XCTAssertLessThanOrEqual(metadata.frame.minY, identified("lyricsWorkspaceView", in: app).frame.minY + 2)
+        XCTAssertEqual(
+            metadata.frame.midY,
+            app.buttons["toggleEditorPanelButton"].frame.midY,
+            accuracy: 2
+        )
         XCTAssertFalse(app.textFields["songTitleField"].exists)
         XCTAssertFalse(app.textFields["songArtistField"].exists)
         XCTAssertTrue(identified("lyricsWorkspaceView", in: app).exists)
@@ -98,6 +102,11 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertFalse(app.buttons["syncTimingButton"].exists)
         XCTAssertTrue(app.textViews["lyricText-0"].exists)
         XCTAssertTrue(identified("playerView", in: app).exists)
+        let playerTitle = identified("playerSongTitle", in: app)
+        let playerArtist = identified("playerSongArtist", in: app)
+        XCTAssertEqual(playerTitle.label, "Looked Up Song")
+        XCTAssertEqual(playerArtist.label, "Looked Up Singer")
+        XCTAssertGreaterThanOrEqual(playerArtist.frame.minY - playerTitle.frame.maxY, 4)
     }
 
     @MainActor
@@ -481,6 +490,10 @@ final class SingersLyricsUITests: XCTestCase {
 
         XCTAssertTrue(identified("lyricsWorkspaceView", in: app).exists)
         XCTAssertFalse(app.buttons["syncTimingButton"].exists)
+        XCTAssertLessThan(
+            identified("playerSongArtist", in: app).frame.maxY,
+            identified("playerLine-0", in: app).frame.minY
+        )
 
         let playFromLine = identified("playFromLineTimingButton", in: app)
         let pause = identified("pauseTimingButton", in: app)

@@ -215,14 +215,9 @@ struct ContentView: View {
             ProgressView("Opening Library…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let binding = model.bindingForSelectedSong() {
-            VStack(spacing: 0) {
-                songMetadataHeader(for: binding.wrappedValue)
-
-                LyricsEditorView(song: binding)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(.background)
+            LyricsEditorView(song: binding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.background)
         } else {
             ContentUnavailableView(
                 "No Song Selected",
@@ -259,15 +254,28 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var detailToolbar: some ToolbarContent {
+        if let song = selectedSong, workspaceLayout.showsEditor {
+            ToolbarItem(placement: .navigation) {
+                songMetadataHeader(for: song)
+            }
+        }
+
         ToolbarSpacer(.flexible, placement: .primaryAction)
 
         ToolbarItem(placement: .primaryAction) {
-            HStack(spacing: 16) {
-                workspaceToolbarButtons
-                lyricsFileToolbarButtons
-                songToolbarButtons
-            }
-            .fixedSize(horizontal: true, vertical: false)
+            workspaceToolbarButtons
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            lyricsFileToolbarButtons
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            songToolbarButtons
         }
     }
 
@@ -378,23 +386,19 @@ struct ContentView: View {
     private func songMetadataHeader(for song: Song) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(song.title.isEmpty ? "Untitled" : song.title)
-                .font(.headline)
+                .font(.title2.weight(.semibold))
                 .lineLimit(1)
 
             if !song.artist.isEmpty {
                 Text("|")
                     .foregroundStyle(.tertiary)
                 Text(song.artist)
-                    .font(.subheadline)
+                    .font(.title2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 2)
-        .fixedSize(horizontal: false, vertical: true)
+        .fixedSize(horizontal: true, vertical: false)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             [song.title.isEmpty ? "Untitled" : song.title, song.artist]
@@ -424,6 +428,10 @@ private enum WorkspaceLayout: Equatable {
     case both
     case editorOnly
     case playerOnly
+
+    var showsEditor: Bool {
+        self != .playerOnly
+    }
 
     var accessibilityValue: String {
         switch self {

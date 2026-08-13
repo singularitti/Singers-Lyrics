@@ -16,37 +16,41 @@ struct PlayerView: View {
     private var hasTiming: Bool { song.lines.contains { $0.timestampSeconds != nil } }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
-            let position = playback.interpolatedPosition(for: song, at: context.date)
-            VStack(spacing: 0) {
-                if playback.state.permissionDenied {
-                    permissionBanner
-                        .padding(.horizontal, 20)
-                        .padding(.top, 12)
-                }
-
-                if let issue = playback.issue {
-                    playbackIssueBanner(issue)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 12)
-                }
-
-                lyricsScroller(position: position)
-
-                if !hasTiming {
-                    Label(
-                        "No timing recorded yet — select a lyric and use the timing panel in the editor.",
-                        systemImage: "info.circle"
-                    )
-                    .foregroundStyle(.blue)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+        VStack(spacing: 0) {
+            if playback.state.permissionDenied {
+                permissionBanner
                     .padding(.horizontal, 20)
-                }
+                    .padding(.top, 12)
+            }
 
-                Divider()
-                transport(position: position)
+            if let issue = playback.issue {
+                playbackIssueBanner(issue)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+            }
+
+            songHeader
+
+            TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+                let position = playback.interpolatedPosition(for: song, at: context.date)
+                VStack(spacing: 0) {
+                    lyricsScroller(position: position)
+
+                    if !hasTiming {
+                        Label(
+                            "No timing recorded yet — select a lyric and use the timing panel in the editor.",
+                            systemImage: "info.circle"
+                        )
+                        .foregroundStyle(.blue)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                        .padding(.horizontal, 20)
+                    }
+
+                    Divider()
+                    transport(position: position)
+                }
             }
         }
         .onAppear {
@@ -66,6 +70,30 @@ struct PlayerView: View {
         .onDisappear { playback.stopPolling(owner: pollingOwner) }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("playerView")
+    }
+
+    private var songHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(song.title.isEmpty ? "Untitled" : song.title)
+                .font(.largeTitle.weight(.bold))
+                .lineLimit(2)
+                .accessibilityIdentifier("playerSongTitle")
+
+            if !song.artist.isEmpty {
+                Text(song.artist)
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("playerSongArtist")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 32)
+        .padding(.top, 28)
+        .padding(.bottom, 20)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("playerSongHeader")
     }
 
     private var permissionBanner: some View {
