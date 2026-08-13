@@ -86,14 +86,13 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertFalse(app.buttons["sidebarEmptyNewSongButton"].exists)
         _ = createSong(in: app)
 
-        let titleField = app.textFields["songTitleField"]
-        let artistField = app.textFields["songArtistField"]
-        XCTAssertEqual(titleField.value as? String, "Looked Up Song")
-        XCTAssertEqual(artistField.value as? String, "Looked Up Singer")
+        let metadata = identified("songMetadataHeader", in: app)
+        XCTAssertTrue(metadata.label.contains("Looked Up Song"))
+        XCTAssertTrue(metadata.label.contains("Looked Up Singer"))
+        XCTAssertFalse(app.textFields["songTitleField"].exists)
+        XCTAssertFalse(app.textFields["songArtistField"].exists)
         let editor = identified("lyricsWorkspaceView", in: app)
         XCTAssertTrue(editor.exists)
-        XCTAssertEqual(titleField.frame.midY, artistField.frame.midY, accuracy: 2)
-        XCTAssertLessThan(titleField.frame.maxY, editor.frame.minY)
         XCTAssertTrue(identified("timingPanel", in: app).exists)
         XCTAssertFalse(app.buttons["syncTimingButton"].exists)
         XCTAssertTrue(app.textViews["lyricText-0"].exists)
@@ -106,15 +105,21 @@ final class SingersLyricsUITests: XCTestCase {
     }
 
     @MainActor
-    func testEditableMetadataLinkEditingAndWorkspaceColumnVisibility() {
+    func testSidebarMetadataEditingLinkEditingAndWorkspaceColumnVisibility() {
         let app = launchApp()
         _ = createSong(in: app)
-        var titleField = app.textFields["songTitleField"]
-        var artistField = app.textFields["songArtistField"]
+
+        app.buttons["editSongDetailsButton"].click()
+        let titleField = app.textFields["songDetailsTitleField"]
+        let artistField = app.textFields["songDetailsArtistField"]
+        XCTAssertTrue(titleField.waitForExistence(timeout: 3))
         replaceText(in: titleField, with: "Edited Song")
         replaceText(in: artistField, with: "Edited Singer")
+        app.buttons["saveSongDetailsButton"].click()
+        XCTAssertTrue(titleField.waitForNonExistence(timeout: 3))
         XCTAssertEqual(identified("playerSongTitle", in: app).label, "Edited Song")
         XCTAssertEqual(identified("playerSongArtist", in: app).label, "Edited Singer")
+        XCTAssertTrue(identified("songMetadataHeader", in: app).label.contains("Edited Song"))
 
         app.buttons["appleMusicLinkButton"].click()
         let link = app.textFields["appleMusicURLField"]
@@ -125,11 +130,10 @@ final class SingersLyricsUITests: XCTestCase {
         )
         app.buttons["saveAppleMusicLinkButton"].click()
         XCTAssertTrue(link.waitForNonExistence(timeout: 3))
-        titleField = app.textFields["songTitleField"]
-        artistField = app.textFields["songArtistField"]
-        XCTAssertTrue(titleField.waitForExistence(timeout: 3))
-        XCTAssertEqual(titleField.value as? String, "Alpha")
-        XCTAssertEqual(artistField.value as? String, "First Singer")
+        var metadata = identified("songMetadataHeader", in: app)
+        XCTAssertTrue(metadata.waitForExistence(timeout: 3))
+        XCTAssertTrue(metadata.label.contains("Alpha"))
+        XCTAssertTrue(metadata.label.contains("First Singer"))
         XCTAssertEqual(app.buttons["appleMusicLinkButton"].value as? String, "Linked")
 
         let editor = identified("lyricsWorkspaceView", in: app)
@@ -140,13 +144,12 @@ final class SingersLyricsUITests: XCTestCase {
         previewToggle.click()
         XCTAssertTrue(player.exists)
         XCTAssertTrue(editor.waitForNonExistence(timeout: 3))
-        XCTAssertTrue(titleField.waitForNonExistence(timeout: 3))
-        XCTAssertTrue(artistField.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(metadata.waitForNonExistence(timeout: 3))
         XCTAssertEqual(previewToggle.value as? String, "Player Only")
         previewToggle.click()
         XCTAssertEqual(previewToggle.value as? String, "Editor and Player")
-        XCTAssertTrue(app.textFields["songTitleField"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.textFields["songArtistField"].exists)
+        metadata = identified("songMetadataHeader", in: app)
+        XCTAssertTrue(metadata.waitForExistence(timeout: 3))
         XCTAssertTrue(player.waitForExistence(timeout: 3))
         XCTAssertTrue(editor.waitForExistence(timeout: 3))
         XCTAssertTrue(identified("timingPanel", in: app).exists)
@@ -360,7 +363,7 @@ final class SingersLyricsUITests: XCTestCase {
     }
 
     @MainActor
-    func testSongSortingAndDeleteConfirmation() {
+    func testSongSortingMultiSelectionAndDeleteConfirmation() {
         let app = launchApp()
         _ = createSong(
             in: app,
@@ -379,11 +382,18 @@ final class SingersLyricsUITests: XCTestCase {
         firstRow = identified("songRow-0", in: app)
         XCTAssertTrue(firstRow.label.contains("Alpha"))
 
+        let secondRow = identified("songRow-1", in: app)
+        XCUIElement.perform(withKeyModifiers: .command) {
+            secondRow.click()
+        }
+        XCTAssertTrue(firstRow.isSelected)
+        XCTAssertTrue(secondRow.isSelected)
         app.buttons["deleteSongButton"].click()
-        XCTAssertTrue(app.staticTexts["Delete This Song?"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Delete Selected Songs?"].waitForExistence(timeout: 3))
         app.sheets.firstMatch.buttons["Delete"].click()
-        XCTAssertTrue(identified("songRow-0", in: app).label.contains("Alpha"))
-        XCTAssertFalse(identified("songRow-1", in: app).exists)
+        XCTAssertTrue(app.buttons["emptyNewSongButton"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.buttons.matching(identifier: "emptyNewSongButton").count, 1)
+        XCTAssertFalse(identified("songRow-0", in: app).exists)
     }
 
     @MainActor
@@ -513,6 +523,7 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertLessThanOrEqual(clearSelection.frame.width, 44)
         for action in [pause, removeTiming, clearSelection] {
             XCTAssertEqual(playFromLine.frame.midY, action.frame.midY, accuracy: 3)
+            XCTAssertEqual(playFromLine.frame.height, action.frame.height, accuracy: 2)
         }
         XCTAssertEqual(clearSelection.frame.maxX, actionRow.frame.maxX, accuracy: 3)
         XCTAssertEqual(clearSelection.frame.maxX, wideHeader.frame.maxX, accuracy: 3)
@@ -579,6 +590,7 @@ final class SingersLyricsUITests: XCTestCase {
         actionRow = identified("timingActionRow", in: app)
         for action in [pause, removeTiming, clearSelection] {
             XCTAssertEqual(playFromLine.frame.midY, action.frame.midY, accuracy: 3)
+            XCTAssertEqual(playFromLine.frame.height, action.frame.height, accuracy: 2)
         }
         XCTAssertGreaterThan(actionRow.frame.minX, compactHeaderFrame.minX)
         XCTAssertEqual(actionRow.frame.maxX, compactHeaderFrame.maxX, accuracy: 3)

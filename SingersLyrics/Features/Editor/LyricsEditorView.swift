@@ -493,6 +493,7 @@ struct LyricsEditorView: View {
             removeTimingButton
             clearTimingSelectionButton
         }
+        .environment(\.controlSize, .small)
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("timingActionRow")
@@ -505,7 +506,9 @@ struct LyricsEditorView: View {
             }
         } label: {
             Label("Play from Line", systemImage: "play.fill")
+                .frame(height: 16)
         }
+        .frame(minHeight: 28)
         .accessibilityIdentifier("playFromLineTimingButton")
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -518,7 +521,9 @@ struct LyricsEditorView: View {
             }
         } label: {
             Image(systemName: "pause.fill")
+                .frame(width: 16, height: 16)
         }
+        .frame(minHeight: 28)
         .disabled(!playback.isPlaying(song))
         .help("Pause")
         .accessibilityLabel("Pause")
@@ -527,9 +532,13 @@ struct LyricsEditorView: View {
     }
 
     private var removeTimingButton: some View {
-        Button("Remove Timing") {
+        Button {
             clearSelectedTiming()
+        } label: {
+            Text("Remove Timing")
+                .frame(height: 16)
         }
+        .frame(minHeight: 28)
         .disabled(adjustmentIDs.isEmpty)
         .accessibilityIdentifier("removeTimingButton")
         .fixedSize(horizontal: true, vertical: false)
@@ -540,7 +549,9 @@ struct LyricsEditorView: View {
             clearLineSelection()
         } label: {
             Image(systemName: "xmark")
+                .frame(width: 16, height: 16)
         }
+        .frame(minHeight: 28)
         .disabled(selectedLineIDs.isEmpty)
         .help("Clear line selection")
         .accessibilityLabel("Clear line selection")

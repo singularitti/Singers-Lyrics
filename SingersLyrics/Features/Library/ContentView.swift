@@ -1,11 +1,11 @@
-import AppKit
 import SwiftUI
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     let metadataLookup: any TrackMetadataLookingUp
     @State private var searchText = ""
-    @State private var songToDelete: Song?
+    @State private var songIDsToDelete: Set<UUID> = []
+    @State private var songForDetails: Song?
     @State private var songForLink: Song?
     @State private var importSongID: UUID?
     @State private var exportSong: Song?
@@ -82,17 +82,25 @@ struct ContentView: View {
             } message: {
                 Text(exportError ?? "Unknown error")
             }
-            .alert("Delete This Song?", isPresented: Binding(
-                get: { songToDelete != nil },
-                set: { if !$0 { songToDelete = nil } }
-            ), presenting: songToDelete) { song in
-                Button("Delete", role: .destructive) {
-                    model.deleteSong(song.id)
-                    songToDelete = nil
+            .sheet(item: $songForDetails) { song in
+                SongDetailsSheet(song: song) { title, artist in
+                    var updated = song
+                    updated.title = title
+                    updated.artist = artist
+                    model.replaceSong(updated)
                 }
-                Button("Cancel", role: .cancel) { songToDelete = nil }
-            } message: { song in
-                Text("“\(song.title.isEmpty ? "Untitled" : song.title)” and its lyrics will be permanently removed.")
+            }
+            .alert(deleteConfirmationTitle, isPresented: Binding(
+                get: { !songIDsToDelete.isEmpty },
+                set: { if !$0 { songIDsToDelete = [] } }
+            )) {
+                Button("Delete", role: .destructive) {
+                    model.deleteSongs(songIDsToDelete)
+                    songIDsToDelete = []
+                }
+                Button("Cancel", role: .cancel) { songIDsToDelete = [] }
+            } message: {
+                Text(deleteConfirmationMessage)
             }
             .alert("Library Error", isPresented: Binding(
                 get: { model.storageIssue != nil },
@@ -122,28 +130,35 @@ struct ContentView: View {
 
     @ViewBuilder
     private var workspace: some View {
-        switch workspaceLayout {
-        case .both:
-            HSplitView {
+        if model.isLoaded, model.library.songs.isEmpty {
+            emptyLibraryView
+        } else {
+            switch workspaceLayout {
+            case .both:
+                HSplitView {
+                    editorColumn
+                        .frame(minWidth: 420, idealWidth: 520, maxWidth: .infinity)
+                    playerColumn
+                        .frame(minWidth: 420, idealWidth: 620, maxWidth: .infinity)
+                }
+            case .editorOnly:
                 editorColumn
-                    .frame(minWidth: 420, idealWidth: 520, maxWidth: .infinity)
+            case .playerOnly:
                 playerColumn
-                    .frame(minWidth: 420, idealWidth: 620, maxWidth: .infinity)
             }
-        case .editorOnly:
-            editorColumn
-        case .playerOnly:
-            playerColumn
         }
     }
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            List(selection: Binding(
-                get: { model.selectedSongID },
-                set: { model.selectSong($0) }
-            )) {
-                ForEach(Array(visibleSongs.enumerated()), id: \.element.id) { index, song in
+            Table(
+                visibleSongs,
+                selection: Binding(
+                    get: { model.selectedSongIDs },
+                    set: { model.selectSongs($0) }
+                )
+            ) {
+                TableColumn("Songs") { song in
                     VStack(alignment: .leading, spacing: 2) {
                         Label(song.title.isEmpty ? "Untitled" : song.title, systemImage: "music.note")
                             .lineLimit(1)
@@ -157,6 +172,7 @@ struct ContentView: View {
                     }
                     .tag(song.id)
                     .contextMenu {
+                        Button("Edit Title and Singer…") { songForDetails = song }
                         Button("Change Apple Music Link…") { songForLink = song }
                         Divider()
                         Button("Move Up") {
@@ -168,17 +184,21 @@ struct ContentView: View {
                             model.moveSong(song.id, offset: 1)
                         }
                         Divider()
-                        Button("Delete", role: .destructive) { songToDelete = song }
+                        Button("Delete", role: .destructive) {
+                            prepareSongDeletion(fallbackID: song.id)
+                        }
                     }
-                    .accessibilityElement(children: .ignore)
+                    .accessibilityElement(children: .combine)
                     .accessibilityLabel(
                         [song.title.isEmpty ? "Untitled" : song.title, song.artist]
                             .filter { !$0.isEmpty }
                             .joined(separator: ", ")
                     )
-                    .accessibilityIdentifier("songRow-\(index)")
+                    .accessibilityIdentifier("songRow-\(visibleSongIndex(for: song))")
                 }
             }
+            .tableColumnHeaders(.hidden)
+            .tableStyle(.inset(alternatesRowBackgrounds: false))
             .overlay {
                 if visibleSongs.isEmpty, !model.library.songs.isEmpty {
                     ContentUnavailableView(
@@ -193,6 +213,19 @@ struct ContentView: View {
             if !model.library.songs.isEmpty {
                 Divider()
                 HStack {
+                    Button {
+                        songForDetails = selectedSong
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Edit Title and Singer")
+                    .accessibilityLabel("Edit Title and Singer")
+                    .accessibilityIdentifier("editSongDetailsButton")
+                    .disabled(model.selectedSongIDs.count != 1 || selectedSong == nil)
+
+                    Spacer(minLength: 4)
+
                     Text("Sort")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -216,20 +249,11 @@ struct ContentView: View {
             ProgressView("Opening Library…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let binding = model.bindingForSelectedSong() {
-            VStack(spacing: 0) {
-                songMetadataFields(for: binding)
-
-                LyricsEditorView(song: binding)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(.background)
+            LyricsEditorView(song: binding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.background)
         } else {
-            ContentUnavailableView(
-                "No Song Selected",
-                systemImage: "text.quote",
-                description: Text("Select a song to edit its lyrics.")
-            )
+            emptySelectionPlaceholder
         }
     }
 
@@ -240,17 +264,7 @@ struct ContentView: View {
             } else if let song = selectedSong {
                 PlayerView(song: song)
             } else {
-                ContentUnavailableView {
-                    Label("No Song Selected", systemImage: "music.note")
-                } description: {
-                    Text("Add a song from Apple Music or select one from the library.")
-                } actions: {
-                    Button("New Song from Apple Music") {
-                        model.isCreatingSong = true
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("emptyNewSongButton")
-                }
+                emptySelectionPlaceholder
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -260,6 +274,12 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var detailToolbar: some ToolbarContent {
+        if let song = selectedSong, workspaceLayout.showsEditor {
+            ToolbarItem(placement: .navigation) {
+                songMetadataHeader(for: song)
+            }
+        }
+
         ToolbarSpacer(.flexible, placement: .primaryAction)
 
         ToolbarItem(placement: .primaryAction) {
@@ -350,14 +370,14 @@ struct ContentView: View {
             .disabled(selectedSong == nil)
 
             Button(role: .destructive) {
-                songToDelete = selectedSong
+                prepareSongDeletion(fallbackID: selectedSong?.id)
             } label: {
                 Image(systemName: "trash")
             }
-            .help("Delete Selected Song")
-            .accessibilityLabel("Delete Selected Song")
+            .help(deleteButtonLabel)
+            .accessibilityLabel(deleteButtonLabel)
             .accessibilityIdentifier("deleteSongButton")
-            .disabled(selectedSong == nil)
+            .disabled(model.selectedSongIDs.isEmpty)
         }
         .controlGroupStyle(.navigation)
     }
@@ -383,45 +403,78 @@ struct ContentView: View {
         return column == .editor ? "Show Only Editor Column" : "Show Only Player Column"
     }
 
-    private func songMetadataFields(for song: Binding<Song>) -> some View {
-        HStack(alignment: .center, spacing: 8) {
-            songTitleField(for: song)
-
+    private func songMetadataHeader(for song: Song) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(song.title.isEmpty ? "Untitled" : song.title)
+                .font(.title2.weight(.semibold))
+                .lineLimit(1)
             Text("|")
-                .font(.title3)
                 .foregroundStyle(.tertiary)
-
-            songArtistField(for: song)
+            Text(song.artist.isEmpty ? "Unknown Singer" : song.artist)
+                .font(.title2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 6)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityElement(children: .contain)
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(song.title.isEmpty ? "Untitled" : song.title) | \(song.artist.isEmpty ? "Unknown Singer" : song.artist)")
         .accessibilityIdentifier("songMetadataHeader")
     }
 
-    private func songTitleField(for song: Binding<Song>) -> some View {
-        MetadataTextField(
-            text: song.title,
-            placeholder: "Title",
-            accessibilityLabel: "Song title",
-            accessibilityIdentifier: "songTitleField",
-            weight: .semibold
-        )
-        .frame(width: 180)
+    @ViewBuilder
+    private var emptyLibraryView: some View {
+        ContentUnavailableView {
+            Label("No Songs Yet", systemImage: "music.note.list")
+        } description: {
+            Text("Add a song from Apple Music to begin.")
+        } actions: {
+            Button("New Song from Apple Music") {
+                model.isCreatingSong = true
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("emptyNewSongButton")
+        }
     }
 
-    private func songArtistField(for song: Binding<Song>) -> some View {
-        MetadataTextField(
-            text: song.artist,
-            placeholder: "Singer",
-            accessibilityLabel: "Singer",
-            accessibilityIdentifier: "songArtistField",
-            weight: .regular
+    private var emptySelectionPlaceholder: some View {
+        ContentUnavailableView(
+            "Select One Song",
+            systemImage: "music.note",
+            description: Text("Select one song to edit lyrics or open the player.")
         )
-        .frame(width: 150)
+    }
+
+    private var deleteButtonLabel: String {
+        model.selectedSongIDs.count > 1
+            ? "Delete Selected Songs"
+            : "Delete Selected Song"
+    }
+
+    private var deleteConfirmationTitle: String {
+        songIDsToDelete.count > 1 ? "Delete Selected Songs?" : "Delete This Song?"
+    }
+
+    private var deleteConfirmationMessage: String {
+        if songIDsToDelete.count > 1 {
+            return "\(songIDsToDelete.count) songs and their lyrics will be permanently removed."
+        }
+        let title = songIDsToDelete.first
+            .flatMap { model.song(withID: $0)?.title }
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? "Untitled"
+        return "“\(title)” and its lyrics will be permanently removed."
+    }
+
+    private func prepareSongDeletion(fallbackID: UUID?) {
+        if let fallbackID, !model.selectedSongIDs.contains(fallbackID) {
+            songIDsToDelete = [fallbackID]
+        } else {
+            songIDsToDelete = model.selectedSongIDs
+        }
+    }
+
+    private func visibleSongIndex(for song: Song) -> Int {
+        visibleSongs.firstIndex { $0.id == song.id } ?? 0
     }
 
     private func exportFilename(for song: Song) -> String {
@@ -445,6 +498,10 @@ private enum WorkspaceLayout: Equatable {
     case editorOnly
     case playerOnly
 
+    var showsEditor: Bool {
+        self != .playerOnly
+    }
+
     var accessibilityValue: String {
         switch self {
         case .both: "Editor and Player"
@@ -454,56 +511,50 @@ private enum WorkspaceLayout: Equatable {
     }
 }
 
-private struct MetadataTextField: NSViewRepresentable {
-    @Binding var text: String
-    let placeholder: String
-    let accessibilityLabel: String
-    let accessibilityIdentifier: String
-    let weight: NSFont.Weight
+private struct SongDetailsSheet: View {
+    let song: Song
+    let onSave: (String, String) -> Void
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+    @Environment(\.dismiss) private var dismiss
+    @State private var title: String
+    @State private var artist: String
+    @FocusState private var titleFocused: Bool
+
+    init(song: Song, onSave: @escaping (String, String) -> Void) {
+        self.song = song
+        self.onSave = onSave
+        _title = State(initialValue: song.title)
+        _artist = State(initialValue: song.artist)
     }
 
-    func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField(string: text)
-        field.placeholderString = placeholder
-        field.font = .systemFont(ofSize: 20, weight: weight)
-        field.bezelStyle = .roundedBezel
-        field.isBezeled = true
-        field.isBordered = true
-        field.drawsBackground = true
-        field.usesSingleLineMode = true
-        field.lineBreakMode = .byTruncatingTail
-        field.delegate = context.coordinator
-        field.setAccessibilityLabel(accessibilityLabel)
-        field.setAccessibilityIdentifier(accessibilityIdentifier)
-        return field
-    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Edit Song Details")
+                .font(.title2.bold())
+            TextField("Title", text: $title)
+                .focused($titleFocused)
+                .accessibilityIdentifier("songDetailsTitleField")
+            TextField("Singer", text: $artist)
+                .accessibilityIdentifier("songDetailsArtistField")
 
-    func updateNSView(_ field: NSTextField, context: Context) {
-        context.coordinator.text = $text
-        field.placeholderString = placeholder
-        field.font = .systemFont(ofSize: 20, weight: weight)
-        field.setAccessibilityLabel(accessibilityLabel)
-        field.setAccessibilityIdentifier(accessibilityIdentifier)
-        if field.stringValue != text {
-            field.stringValue = text
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Save") {
+                    onSave(
+                        title.trimmingCharacters(in: .whitespacesAndNewlines),
+                        artist.trimmingCharacters(in: .whitespacesAndNewlines)
+                    )
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityIdentifier("saveSongDetailsButton")
+            }
         }
-    }
-
-    @MainActor
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var text: Binding<String>
-
-        init(text: Binding<String>) {
-            self.text = text
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            text.wrappedValue = field.stringValue
-        }
+        .padding(20)
+        .frame(width: 420)
+        .onAppear { titleFocused = true }
     }
 }
 

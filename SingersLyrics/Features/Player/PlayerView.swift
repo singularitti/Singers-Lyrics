@@ -13,6 +13,8 @@ struct PlayerView: View {
     @State private var pollingOwner = UUID()
 
     private var annotationSize: CGFloat { CGFloat(lyricSize * 0.6) }
+    private var titleSize: CGFloat { max(CGFloat(lyricSize * 1.35), 56) }
+    private var artistSize: CGFloat { max(CGFloat(lyricSize * 0.72), 30) }
     private var hasTiming: Bool { song.lines.contains { $0.timestampSeconds != nil } }
 
     var body: some View {
@@ -73,14 +75,14 @@ struct PlayerView: View {
     private var songHeader: some View {
         VStack(alignment: .center, spacing: 8) {
             Text(song.title.isEmpty ? "Untitled" : song.title)
-                .font(.largeTitle.weight(.bold))
+                .font(.system(size: titleSize, weight: .bold))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .accessibilityIdentifier("playerSongTitle")
 
             if !song.artist.isEmpty {
                 Text(song.artist)
-                    .font(.title2)
+                    .font(.system(size: artistSize, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .multilineTextAlignment(.center)

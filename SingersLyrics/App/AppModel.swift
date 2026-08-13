@@ -18,6 +18,7 @@ final class AppModel {
 
     var library = LibraryDocument()
     var selectedSongID: UUID?
+    var selectedSongIDs: Set<UUID> = []
     var isCreatingSong = false
     private(set) var isLoaded = false
     private(set) var autosaveDisabled = false
@@ -35,6 +36,7 @@ final class AppModel {
                let id = UUID(uuidString: saved),
                library.songs.contains(where: { $0.id == id }) {
                 selectedSongID = id
+                selectedSongIDs = [id]
             }
         } catch {
             autosaveDisabled = true
@@ -50,10 +52,29 @@ final class AppModel {
 
     func selectSong(_ id: UUID?) {
         selectedSongID = id
-        if let id {
-            UserDefaults.standard.set(id.uuidString, forKey: PreferenceKey.selectedSong)
+        selectedSongIDs = id.map { Set([$0]) } ?? []
+        persistSelectedSong(id)
+    }
+
+    func selectSongs(_ ids: Set<UUID>) {
+        let validIDs = ids.intersection(Set(library.songs.map(\.id)))
+        let newlySelectedIDs = validIDs.subtracting(selectedSongIDs)
+        selectedSongIDs = validIDs
+
+        if validIDs.count == 1, let onlyID = validIDs.first {
+            selectedSongID = onlyID
+            persistSelectedSong(onlyID)
+        } else if newlySelectedIDs.count == 1, let newID = newlySelectedIDs.first {
+            selectedSongID = newID
+            persistSelectedSong(newID)
+        } else if let selectedSongID, validIDs.contains(selectedSongID) {
+            persistSelectedSong(selectedSongID)
+        } else if let firstVisibleID = library.songs.first(where: { validIDs.contains($0.id) })?.id {
+            selectedSongID = firstVisibleID
+            persistSelectedSong(firstVisibleID)
         } else {
-            UserDefaults.standard.removeObject(forKey: PreferenceKey.selectedSong)
+            selectedSongID = nil
+            persistSelectedSong(nil)
         }
     }
 
@@ -89,12 +110,22 @@ final class AppModel {
         markChanged()
     }
 
-    func deleteSong(_ id: UUID) {
-        library.songs.removeAll { $0.id == id }
-        if selectedSongID == id {
-            selectSong(library.songs.first?.id)
+    func deleteSongs(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        library.songs.removeAll { ids.contains($0.id) }
+        selectedSongIDs.subtract(ids)
+        if let selectedSongID, ids.contains(selectedSongID) {
+            self.selectedSongID = selectedSongIDs.first ?? library.songs.first?.id
         }
+        if let selectedSongID {
+            selectedSongIDs.insert(selectedSongID)
+        }
+        persistSelectedSong(selectedSongID)
         markChanged()
+    }
+
+    func deleteSong(_ id: UUID) {
+        deleteSongs([id])
     }
 
     func moveSong(_ id: UUID, offset: Int) {
@@ -125,6 +156,14 @@ final class AppModel {
             try? await Task.sleep(for: .milliseconds(600))
             guard !Task.isCancelled else { return }
             await self?.persistCurrentDocument()
+        }
+    }
+
+    private func persistSelectedSong(_ id: UUID?) {
+        if let id {
+            UserDefaults.standard.set(id.uuidString, forKey: PreferenceKey.selectedSong)
+        } else {
+            UserDefaults.standard.removeObject(forKey: PreferenceKey.selectedSong)
         }
     }
 
