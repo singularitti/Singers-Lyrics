@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -215,9 +216,14 @@ struct ContentView: View {
             ProgressView("Opening Library…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let binding = model.bindingForSelectedSong() {
-            LyricsEditorView(song: binding)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.background)
+            VStack(spacing: 0) {
+                songMetadataFields(for: binding)
+
+                LyricsEditorView(song: binding)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(.background)
         } else {
             ContentUnavailableView(
                 "No Song Selected",
@@ -254,12 +260,6 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var detailToolbar: some ToolbarContent {
-        if let song = selectedSong, workspaceLayout.showsEditor {
-            ToolbarItem(placement: .navigation) {
-                songMetadataHeader(for: song)
-            }
-        }
-
         ToolbarSpacer(.flexible, placement: .primaryAction)
 
         ToolbarItem(placement: .primaryAction) {
@@ -383,29 +383,45 @@ struct ContentView: View {
         return column == .editor ? "Show Only Editor Column" : "Show Only Player Column"
     }
 
-    private func songMetadataHeader(for song: Song) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(song.title.isEmpty ? "Untitled" : song.title)
-                .font(.title2.weight(.semibold))
-                .lineLimit(1)
+    private func songMetadataFields(for song: Binding<Song>) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            songTitleField(for: song)
 
-            if !song.artist.isEmpty {
-                Text("|")
-                    .foregroundStyle(.tertiary)
-                Text(song.artist)
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            Text("|")
+                .font(.title3)
+                .foregroundStyle(.tertiary)
+
+            songArtistField(for: song)
         }
-        .fixedSize(horizontal: true, vertical: false)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            [song.title.isEmpty ? "Untitled" : song.title, song.artist]
-                .filter { !$0.isEmpty }
-                .joined(separator: " | ")
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("songMetadataHeader")
+    }
+
+    private func songTitleField(for song: Binding<Song>) -> some View {
+        MetadataTextField(
+            text: song.title,
+            placeholder: "Title",
+            accessibilityLabel: "Song title",
+            accessibilityIdentifier: "songTitleField",
+            weight: .semibold
+        )
+        .frame(width: 180)
+    }
+
+    private func songArtistField(for song: Binding<Song>) -> some View {
+        MetadataTextField(
+            text: song.artist,
+            placeholder: "Singer",
+            accessibilityLabel: "Singer",
+            accessibilityIdentifier: "songArtistField",
+            weight: .regular
+        )
+        .frame(width: 150)
     }
 
     private func exportFilename(for song: Song) -> String {
@@ -429,15 +445,64 @@ private enum WorkspaceLayout: Equatable {
     case editorOnly
     case playerOnly
 
-    var showsEditor: Bool {
-        self != .playerOnly
-    }
-
     var accessibilityValue: String {
         switch self {
         case .both: "Editor and Player"
         case .editorOnly: "Editor Only"
         case .playerOnly: "Player Only"
+        }
+    }
+}
+
+private struct MetadataTextField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    let accessibilityLabel: String
+    let accessibilityIdentifier: String
+    let weight: NSFont.Weight
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField(string: text)
+        field.placeholderString = placeholder
+        field.font = .systemFont(ofSize: 20, weight: weight)
+        field.bezelStyle = .roundedBezel
+        field.isBezeled = true
+        field.isBordered = true
+        field.drawsBackground = true
+        field.usesSingleLineMode = true
+        field.lineBreakMode = .byTruncatingTail
+        field.delegate = context.coordinator
+        field.setAccessibilityLabel(accessibilityLabel)
+        field.setAccessibilityIdentifier(accessibilityIdentifier)
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.text = $text
+        field.placeholderString = placeholder
+        field.font = .systemFont(ofSize: 20, weight: weight)
+        field.setAccessibilityLabel(accessibilityLabel)
+        field.setAccessibilityIdentifier(accessibilityIdentifier)
+        if field.stringValue != text {
+            field.stringValue = text
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            text.wrappedValue = field.stringValue
         }
     }
 }

@@ -29,8 +29,6 @@ struct PlayerView: View {
                     .padding(.top, 12)
             }
 
-            songHeader
-
             TimelineView(.animation(minimumInterval: 1 / 30)) { context in
                 let position = playback.interpolatedPosition(for: song, at: context.date)
                 VStack(spacing: 0) {
@@ -73,10 +71,11 @@ struct PlayerView: View {
     }
 
     private var songHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .center, spacing: 8) {
             Text(song.title.isEmpty ? "Untitled" : song.title)
                 .font(.largeTitle.weight(.bold))
                 .lineLimit(2)
+                .multilineTextAlignment(.center)
                 .accessibilityIdentifier("playerSongTitle")
 
             if !song.artist.isEmpty {
@@ -84,13 +83,11 @@ struct PlayerView: View {
                     .font(.title2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .multilineTextAlignment(.center)
                     .accessibilityIdentifier("playerSongArtist")
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 32)
-        .padding(.top, 28)
-        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, alignment: .center)
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("playerSongHeader")
@@ -117,55 +114,81 @@ struct PlayerView: View {
 
     private func lyricsScroller(position: Double) -> some View {
         ScrollViewReader { proxy in
-            if song.lines.allSatisfy({ $0.lyric.plainText.isEmpty }) {
-                ContentUnavailableView(
-                    "No Lyrics Yet",
-                    systemImage: "text.quote",
-                    description: Text("Open the editor to add and format lyrics.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(song.lines.enumerated()), id: \.element.id) { index, line in
-                            lyricRow(line, index: index)
-                                .id(line.id)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    // Metadata scrolls with the presentation, but is deliberately
+                    // outside song.lines so it never receives a timestamp or index.
+                    songHeader
+                        .padding(.bottom, 64)
+
+                    if song.lines.allSatisfy({ $0.lyric.plainText.isEmpty }) {
+                        ContentUnavailableView(
+                            "No Lyrics Yet",
+                            systemImage: "text.quote",
+                            description: Text("Open the editor to add and format lyrics.")
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 48)
+                    } else {
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(song.lines.enumerated()), id: \.element.id) { index, line in
+                                lyricRow(line, index: index)
+                                    .id(line.id)
+                            }
                         }
-                    }
-                    .scrollTargetLayout()
-                    .padding(.vertical, 280)
-                    .padding(.horizontal, 32)
-                }
-                .scrollIndicators(.hidden)
-                .mask {
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: .black, location: 0.16),
-                            .init(color: .black, location: 0.84),
-                            .init(color: .clear, location: 1),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                }
-                .onScrollPhaseChange { _, phase in
-                    if phase == .interacting || phase == .tracking || phase == .decelerating {
-                        autoFollow = false
+                        .scrollTargetLayout()
                     }
                 }
-                .onChange(of: TimingUtilities.activeLineIndex(in: song.lines, position: position)) { _, next in
-                    guard next != activeIndex else { return }
-                    activeIndex = next
-                    autoFollow = true
-                    guard let next, song.lines.indices.contains(next) else { return }
-                    withAnimation(.smooth(duration: 0.45)) {
-                        proxy.scrollTo(song.lines[next].id, anchor: .center)
-                    }
+                .padding(.vertical, 280)
+                .padding(.horizontal, 32)
+            }
+            .scrollIndicators(.hidden)
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.16),
+                        .init(color: .black, location: 0.84),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .onScrollPhaseChange { _, phase in
+                if phase == .interacting || phase == .tracking || phase == .decelerating {
+                    autoFollow = false
                 }
+            }
+            .onChange(
+                of: TimingUtilities.activeLineIndex(in: song.lines, position: position)
+            ) { _, next in
+                followLyricLine(next, using: proxy)
+            }
+            .onChange(of: playback.isPlaying(song)) { _, isPlaying in
+                guard isPlaying else { return }
+                followLyricLine(
+                    TimingUtilities.activeLineIndex(in: song.lines, position: position),
+                    force: true,
+                    using: proxy
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func followLyricLine(
+        _ next: Int?,
+        force: Bool = false,
+        using proxy: ScrollViewProxy
+    ) {
+        guard force || next != activeIndex else { return }
+        activeIndex = next
+        autoFollow = true
+        guard let next, song.lines.indices.contains(next) else { return }
+        withAnimation(.smooth(duration: 0.45)) {
+            proxy.scrollTo(song.lines[next].id, anchor: .center)
+        }
     }
 
     private func lyricRow(_ line: LyricLine, index: Int) -> some View {

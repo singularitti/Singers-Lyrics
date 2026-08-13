@@ -86,18 +86,14 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertFalse(app.buttons["sidebarEmptyNewSongButton"].exists)
         _ = createSong(in: app)
 
-        let metadata = identified("songMetadataHeader", in: app)
-        XCTAssertTrue(metadata.exists)
-        XCTAssertTrue(metadata.label.contains("Looked Up Song"))
-        XCTAssertTrue(metadata.label.contains("Looked Up Singer"))
-        XCTAssertEqual(
-            metadata.frame.midY,
-            app.buttons["toggleEditorPanelButton"].frame.midY,
-            accuracy: 2
-        )
-        XCTAssertFalse(app.textFields["songTitleField"].exists)
-        XCTAssertFalse(app.textFields["songArtistField"].exists)
-        XCTAssertTrue(identified("lyricsWorkspaceView", in: app).exists)
+        let titleField = app.textFields["songTitleField"]
+        let artistField = app.textFields["songArtistField"]
+        XCTAssertEqual(titleField.value as? String, "Looked Up Song")
+        XCTAssertEqual(artistField.value as? String, "Looked Up Singer")
+        let editor = identified("lyricsWorkspaceView", in: app)
+        XCTAssertTrue(editor.exists)
+        XCTAssertEqual(titleField.frame.midY, artistField.frame.midY, accuracy: 2)
+        XCTAssertLessThan(titleField.frame.maxY, editor.frame.minY)
         XCTAssertTrue(identified("timingPanel", in: app).exists)
         XCTAssertFalse(app.buttons["syncTimingButton"].exists)
         XCTAssertTrue(app.textViews["lyricText-0"].exists)
@@ -110,12 +106,15 @@ final class SingersLyricsUITests: XCTestCase {
     }
 
     @MainActor
-    func testReadOnlyMetadataLinkEditingAndWorkspaceColumnVisibility() {
+    func testEditableMetadataLinkEditingAndWorkspaceColumnVisibility() {
         let app = launchApp()
         _ = createSong(in: app)
-        var metadata = identified("songMetadataHeader", in: app)
-        XCTAssertTrue(metadata.label.contains("Looked Up Song"))
-        XCTAssertTrue(metadata.label.contains("Looked Up Singer"))
+        var titleField = app.textFields["songTitleField"]
+        var artistField = app.textFields["songArtistField"]
+        replaceText(in: titleField, with: "Edited Song")
+        replaceText(in: artistField, with: "Edited Singer")
+        XCTAssertEqual(identified("playerSongTitle", in: app).label, "Edited Song")
+        XCTAssertEqual(identified("playerSongArtist", in: app).label, "Edited Singer")
 
         app.buttons["appleMusicLinkButton"].click()
         let link = app.textFields["appleMusicURLField"]
@@ -126,10 +125,11 @@ final class SingersLyricsUITests: XCTestCase {
         )
         app.buttons["saveAppleMusicLinkButton"].click()
         XCTAssertTrue(link.waitForNonExistence(timeout: 3))
-        metadata = identified("songMetadataHeader", in: app)
-        XCTAssertTrue(metadata.waitForExistence(timeout: 3))
-        XCTAssertTrue(metadata.label.contains("Alpha"))
-        XCTAssertTrue(metadata.label.contains("First Singer"))
+        titleField = app.textFields["songTitleField"]
+        artistField = app.textFields["songArtistField"]
+        XCTAssertTrue(titleField.waitForExistence(timeout: 3))
+        XCTAssertEqual(titleField.value as? String, "Alpha")
+        XCTAssertEqual(artistField.value as? String, "First Singer")
         XCTAssertEqual(app.buttons["appleMusicLinkButton"].value as? String, "Linked")
 
         let editor = identified("lyricsWorkspaceView", in: app)
@@ -140,9 +140,13 @@ final class SingersLyricsUITests: XCTestCase {
         previewToggle.click()
         XCTAssertTrue(player.exists)
         XCTAssertTrue(editor.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(titleField.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(artistField.waitForNonExistence(timeout: 3))
         XCTAssertEqual(previewToggle.value as? String, "Player Only")
         previewToggle.click()
         XCTAssertEqual(previewToggle.value as? String, "Editor and Player")
+        XCTAssertTrue(app.textFields["songTitleField"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.textFields["songArtistField"].exists)
         XCTAssertTrue(player.waitForExistence(timeout: 3))
         XCTAssertTrue(editor.waitForExistence(timeout: 3))
         XCTAssertTrue(identified("timingPanel", in: app).exists)
@@ -490,10 +494,12 @@ final class SingersLyricsUITests: XCTestCase {
 
         XCTAssertTrue(identified("lyricsWorkspaceView", in: app).exists)
         XCTAssertFalse(app.buttons["syncTimingButton"].exists)
-        XCTAssertLessThan(
-            identified("playerSongArtist", in: app).frame.maxY,
-            identified("playerLine-0", in: app).frame.minY
-        )
+        let playerTitle = identified("playerSongTitle", in: app)
+        let playerArtist = identified("playerSongArtist", in: app)
+        let player = identified("playerView", in: app)
+        XCTAssertEqual(playerTitle.frame.midX, player.frame.midX, accuracy: 3)
+        XCTAssertEqual(playerArtist.frame.midX, player.frame.midX, accuracy: 3)
+        XCTAssertLessThan(playerArtist.frame.maxY, identified("playerLine-0", in: app).frame.minY)
 
         let playFromLine = identified("playFromLineTimingButton", in: app)
         let pause = identified("pauseTimingButton", in: app)
