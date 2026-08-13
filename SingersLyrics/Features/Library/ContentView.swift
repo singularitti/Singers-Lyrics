@@ -272,7 +272,7 @@ struct ContentView: View {
     }
 
     private var workspaceToolbarButtons: some View {
-        HStack(spacing: 0) {
+        ControlGroup {
             Button {
                 toggleWorkspaceColumn(.editor)
             } label: {
@@ -293,10 +293,11 @@ struct ContentView: View {
             .accessibilityIdentifier("togglePreviewPanelButton")
             .accessibilityValue(workspaceLayout.accessibilityValue)
         }
+        .controlGroupStyle(.navigation)
     }
 
     private var lyricsFileToolbarButtons: some View {
-        HStack(spacing: 0) {
+        ControlGroup {
             Button {
                 importSongID = selectedSong?.id
             } label: {
@@ -317,10 +318,11 @@ struct ContentView: View {
             .accessibilityIdentifier("exportLyricsButton")
             .disabled(selectedSong == nil)
         }
+        .controlGroupStyle(.navigation)
     }
 
     private var songToolbarButtons: some View {
-        HStack(spacing: 0) {
+        ControlGroup {
             Button {
                 model.isCreatingSong = true
             } label: {
@@ -349,6 +351,7 @@ struct ContentView: View {
             .accessibilityIdentifier("deleteSongButton")
             .disabled(selectedSong == nil)
         }
+        .controlGroupStyle(.navigation)
     }
 
     private var selectedSong: Song? {
@@ -390,7 +393,6 @@ struct ContentView: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 12)
         .padding(.bottom, 2)
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .ignore)

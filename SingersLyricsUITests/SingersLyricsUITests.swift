@@ -90,6 +90,7 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertTrue(metadata.exists)
         XCTAssertTrue(metadata.label.contains("Looked Up Song"))
         XCTAssertTrue(metadata.label.contains("Looked Up Singer"))
+        XCTAssertLessThanOrEqual(metadata.frame.minY, identified("lyricsWorkspaceView", in: app).frame.minY + 2)
         XCTAssertFalse(app.textFields["songTitleField"].exists)
         XCTAssertFalse(app.textFields["songArtistField"].exists)
         XCTAssertTrue(identified("lyricsWorkspaceView", in: app).exists)
@@ -486,12 +487,16 @@ final class SingersLyricsUITests: XCTestCase {
         let removeTiming = identified("removeTimingButton", in: app)
         let clearSelection = identified("clearTimingSelectionButton", in: app)
         var actionRow = identified("timingActionRow", in: app)
+        let wideHeader = identified("wideTimingHeader", in: app)
         XCTAssertEqual(clearSelection.label, "Clear line selection")
+        XCTAssertEqual(pause.label, "Pause")
+        XCTAssertLessThanOrEqual(pause.frame.width, 44)
+        XCTAssertLessThanOrEqual(clearSelection.frame.width, 44)
         for action in [pause, removeTiming, clearSelection] {
             XCTAssertEqual(playFromLine.frame.midY, action.frame.midY, accuracy: 3)
         }
-        XCTAssertGreaterThanOrEqual(playFromLine.frame.minX, actionRow.frame.minX - 1)
-        XCTAssertLessThanOrEqual(clearSelection.frame.maxX, actionRow.frame.maxX + 1)
+        XCTAssertEqual(clearSelection.frame.maxX, actionRow.frame.maxX, accuracy: 3)
+        XCTAssertEqual(clearSelection.frame.maxX, wideHeader.frame.maxX, accuracy: 3)
 
         let initialLineFrame = identified("lyricLine-0", in: app).frame
         let editorSplitter = app.splitters.allElementsBoundByIndex
@@ -526,6 +531,14 @@ final class SingersLyricsUITests: XCTestCase {
             abs(toolbarMinimumX - searchField.frame.maxX)
         )
         XCTAssertLessThanOrEqual(searchGap, 32)
+        XCTAssertLessThan(
+            app.buttons["togglePreviewPanelButton"].frame.maxX,
+            app.buttons["importLyricsButton"].frame.minX
+        )
+        XCTAssertLessThan(
+            app.buttons["exportLyricsButton"].frame.maxX,
+            app.buttons["newSongButton"].frame.minX
+        )
 
         let dragDistance = max(120, initialLineFrame.width - 388)
         let dragStart = editorSplitter.coordinate(
@@ -548,8 +561,9 @@ final class SingersLyricsUITests: XCTestCase {
         for action in [pause, removeTiming, clearSelection] {
             XCTAssertEqual(playFromLine.frame.midY, action.frame.midY, accuracy: 3)
         }
-        XCTAssertEqual(actionRow.frame.minX, compactHeaderFrame.minX, accuracy: 3)
+        XCTAssertGreaterThan(actionRow.frame.minX, compactHeaderFrame.minX)
         XCTAssertEqual(actionRow.frame.maxX, compactHeaderFrame.maxX, accuracy: 3)
+        XCTAssertEqual(clearSelection.frame.maxX, actionRow.frame.maxX, accuracy: 3)
         XCTAssertGreaterThanOrEqual(actionRow.frame.minX, panelFrame.minX - 1)
         XCTAssertLessThanOrEqual(actionRow.frame.maxX, panelFrame.maxX + 1)
         let controlIDs = [

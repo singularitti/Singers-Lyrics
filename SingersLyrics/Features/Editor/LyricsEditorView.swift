@@ -487,13 +487,13 @@ struct LyricsEditorView: View {
 
     private var timingActionRow: some View {
         HStack(spacing: 6) {
+            Spacer(minLength: 0)
             playFromLineTimingButton
             pauseTimingButton
             removeTimingButton
             clearTimingSelectionButton
-            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("timingActionRow")
     }
@@ -511,13 +511,17 @@ struct LyricsEditorView: View {
     }
 
     private var pauseTimingButton: some View {
-        Button("Pause") {
+        Button {
             Task {
                 guard playback.isPlaying(song) else { return }
                 await playback.togglePlayback(for: song)
             }
+        } label: {
+            Image(systemName: "pause.fill")
         }
         .disabled(!playback.isPlaying(song))
+        .help("Pause")
+        .accessibilityLabel("Pause")
         .accessibilityIdentifier("pauseTimingButton")
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -532,8 +536,10 @@ struct LyricsEditorView: View {
     }
 
     private var clearTimingSelectionButton: some View {
-        Button("Cancel", role: .cancel) {
+        Button(role: .cancel) {
             clearLineSelection()
+        } label: {
+            Image(systemName: "xmark")
         }
         .disabled(selectedLineIDs.isEmpty)
         .help("Clear line selection")
