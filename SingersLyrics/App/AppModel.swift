@@ -110,6 +110,33 @@ final class AppModel {
         markChanged()
     }
 
+    @discardableResult
+    func duplicateSongs(_ ids: Set<UUID>, now: Date = Date()) -> Set<UUID> {
+        let validIDs = ids.intersection(Set(library.songs.map(\.id)))
+        guard !validIDs.isEmpty else { return [] }
+
+        var duplicateIDs: Set<UUID> = []
+        library.songs = library.songs.flatMap { song -> [Song] in
+            guard validIDs.contains(song.id) else { return [song] }
+
+            var duplicate = song
+            duplicate.id = UUID()
+            duplicate.lines = song.lines.map { line in
+                var duplicateLine = line
+                duplicateLine.id = UUID()
+                return duplicateLine
+            }
+            duplicate.createdAt = now
+            duplicate.updatedAt = now
+            duplicateIDs.insert(duplicate.id)
+            return [song, duplicate]
+        }
+
+        selectSongs(duplicateIDs)
+        markChanged()
+        return duplicateIDs
+    }
+
     func deleteSongs(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         library.songs.removeAll { ids.contains($0.id) }

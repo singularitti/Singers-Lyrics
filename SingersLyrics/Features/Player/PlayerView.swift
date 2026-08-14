@@ -1,5 +1,19 @@
 import SwiftUI
 
+enum PlayerTypography {
+    static func annotationSize(for lyricSize: Double) -> CGFloat {
+        CGFloat(lyricSize) * 0.6
+    }
+
+    static func titleSize(for lyricSize: Double) -> CGFloat {
+        CGFloat(lyricSize) * 1.35
+    }
+
+    static func artistSize(for lyricSize: Double) -> CGFloat {
+        CGFloat(lyricSize) * 0.72
+    }
+}
+
 struct PlayerView: View {
     let song: Song
 
@@ -12,9 +26,9 @@ struct PlayerView: View {
     @State private var scrubPosition = 0.0
     @State private var pollingOwner = UUID()
 
-    private var annotationSize: CGFloat { CGFloat(lyricSize * 0.6) }
-    private var titleSize: CGFloat { max(CGFloat(lyricSize * 1.35), 56) }
-    private var artistSize: CGFloat { max(CGFloat(lyricSize * 0.72), 30) }
+    private var annotationSize: CGFloat { PlayerTypography.annotationSize(for: lyricSize) }
+    private var titleSize: CGFloat { PlayerTypography.titleSize(for: lyricSize) }
+    private var artistSize: CGFloat { PlayerTypography.artistSize(for: lyricSize) }
     private var hasTiming: Bool { song.lines.contains { $0.timestampSeconds != nil } }
 
     var body: some View {

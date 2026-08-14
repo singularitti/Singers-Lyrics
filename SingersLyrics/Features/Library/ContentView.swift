@@ -171,23 +171,6 @@ struct ContentView: View {
                         }
                     }
                     .tag(song.id)
-                    .contextMenu {
-                        Button("Edit Title and Singer…") { songForDetails = song }
-                        Button("Change Apple Music Link…") { songForLink = song }
-                        Divider()
-                        Button("Move Up") {
-                            sortMode = .manual
-                            model.moveSong(song.id, offset: -1)
-                        }
-                        Button("Move Down") {
-                            sortMode = .manual
-                            model.moveSong(song.id, offset: 1)
-                        }
-                        Divider()
-                        Button("Delete", role: .destructive) {
-                            prepareSongDeletion(fallbackID: song.id)
-                        }
-                    }
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel(
                         [song.title.isEmpty ? "Untitled" : song.title, song.artist]
@@ -196,6 +179,9 @@ struct ContentView: View {
                     )
                     .accessibilityIdentifier("songRow-\(visibleSongIndex(for: song))")
                 }
+            }
+            .contextMenu(forSelectionType: UUID.self) { songIDs in
+                songContextMenu(for: songIDs)
             }
             .tableColumnHeaders(.hidden)
             .tableStyle(.inset(alternatesRowBackgrounds: false))
@@ -213,17 +199,6 @@ struct ContentView: View {
             if !model.library.songs.isEmpty {
                 Divider()
                 HStack {
-                    Button {
-                        songForDetails = selectedSong
-                    } label: {
-                        Image(systemName: "pencil")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Edit Title and Singer")
-                    .accessibilityLabel("Edit Title and Singer")
-                    .accessibilityIdentifier("editSongDetailsButton")
-                    .disabled(model.selectedSongIDs.count != 1 || selectedSong == nil)
-
                     Spacer(minLength: 4)
 
                     Text("Sort")
@@ -278,6 +253,7 @@ struct ContentView: View {
             ToolbarItem(placement: .navigation) {
                 songMetadataHeader(for: song)
             }
+            .sharedBackgroundVisibility(.hidden)
         }
 
         ToolbarSpacer(.flexible, placement: .primaryAction)
@@ -370,7 +346,7 @@ struct ContentView: View {
             .disabled(selectedSong == nil)
 
             Button(role: .destructive) {
-                prepareSongDeletion(fallbackID: selectedSong?.id)
+                prepareSongDeletion(model.selectedSongIDs)
             } label: {
                 Image(systemName: "trash")
             }
@@ -465,12 +441,54 @@ struct ContentView: View {
         return "“\(title)” and its lyrics will be permanently removed."
     }
 
-    private func prepareSongDeletion(fallbackID: UUID?) {
-        if let fallbackID, !model.selectedSongIDs.contains(fallbackID) {
-            songIDsToDelete = [fallbackID]
-        } else {
-            songIDsToDelete = model.selectedSongIDs
+    @ViewBuilder
+    private func songContextMenu(for requestedIDs: Set<UUID>) -> some View {
+        let songIDs = requestedIDs.intersection(Set(model.library.songs.map(\.id)))
+        let song = songIDs.count == 1
+            ? songIDs.first.flatMap { model.song(withID: $0) }
+            : nil
+
+        Button("Edit Title and Singer…") {
+            songForDetails = song
         }
+        .disabled(song == nil)
+
+        Button("Duplicate") {
+            model.duplicateSongs(songIDs)
+        }
+        .disabled(songIDs.isEmpty)
+
+        Button("Change Apple Music Link…") {
+            songForLink = song
+        }
+        .disabled(song == nil)
+
+        Divider()
+
+        Button("Move Up") {
+            guard let song else { return }
+            sortMode = .manual
+            model.moveSong(song.id, offset: -1)
+        }
+        .disabled(song == nil)
+
+        Button("Move Down") {
+            guard let song else { return }
+            sortMode = .manual
+            model.moveSong(song.id, offset: 1)
+        }
+        .disabled(song == nil)
+
+        Divider()
+
+        Button("Delete", role: .destructive) {
+            prepareSongDeletion(songIDs)
+        }
+        .disabled(songIDs.isEmpty)
+    }
+
+    private func prepareSongDeletion(_ ids: Set<UUID>) {
+        songIDsToDelete = ids.intersection(Set(model.library.songs.map(\.id)))
     }
 
     private func visibleSongIndex(for song: Song) -> Int {

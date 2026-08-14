@@ -109,7 +109,11 @@ final class SingersLyricsUITests: XCTestCase {
         let app = launchApp()
         _ = createSong(in: app)
 
-        app.buttons["editSongDetailsButton"].click()
+        XCTAssertFalse(app.buttons["editSongDetailsButton"].exists)
+        identified("songRow-0", in: app).rightClick()
+        let editDetails = app.menuItems["Edit Title and Singer…"]
+        XCTAssertTrue(editDetails.waitForExistence(timeout: 3))
+        editDetails.click()
         let titleField = app.textFields["songDetailsTitleField"]
         let artistField = app.textFields["songDetailsArtistField"]
         XCTAssertTrue(titleField.waitForExistence(timeout: 3))
@@ -363,7 +367,7 @@ final class SingersLyricsUITests: XCTestCase {
     }
 
     @MainActor
-    func testSongSortingMultiSelectionAndDeleteConfirmation() {
+    func testSongSortingMultiSelectionContextMenuDuplicationAndDeletion() {
         let app = launchApp()
         _ = createSong(
             in: app,
@@ -383,17 +387,34 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertTrue(firstRow.label.contains("Alpha"))
 
         let secondRow = identified("songRow-1", in: app)
+        firstRow.click()
         XCUIElement.perform(withKeyModifiers: .command) {
             secondRow.click()
         }
         XCTAssertTrue(firstRow.isSelected)
         XCTAssertTrue(secondRow.isSelected)
-        app.buttons["deleteSongButton"].click()
+
+        firstRow.rightClick()
+        let duplicate = app.menuItems["Duplicate"]
+        XCTAssertTrue(duplicate.waitForExistence(timeout: 3))
+        duplicate.click()
+        XCTAssertTrue(identified("songRow-3", in: app).waitForExistence(timeout: 3))
+
+        let rows = (0..<4).map { identified("songRow-\($0)", in: app) }
+        let selectedRows = rows.filter(\.isSelected)
+        XCTAssertEqual(selectedRows.count, 2)
+        guard let selectedRow = selectedRows.first else {
+            return XCTFail("Expected duplicated songs to be selected")
+        }
+
+        selectedRow.rightClick()
+        let delete = app.menuItems["Delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 3))
+        delete.click()
         XCTAssertTrue(app.staticTexts["Delete Selected Songs?"].waitForExistence(timeout: 3))
         app.sheets.firstMatch.buttons["Delete"].click()
-        XCTAssertTrue(app.buttons["emptyNewSongButton"].waitForExistence(timeout: 3))
-        XCTAssertEqual(app.buttons.matching(identifier: "emptyNewSongButton").count, 1)
-        XCTAssertFalse(identified("songRow-0", in: app).exists)
+        XCTAssertTrue(identified("songRow-1", in: app).waitForExistence(timeout: 3))
+        XCTAssertFalse(identified("songRow-2", in: app).exists)
     }
 
     @MainActor

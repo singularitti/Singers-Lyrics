@@ -395,6 +395,27 @@ final class SingersLyricsTests: XCTestCase {
         XCTAssertEqual(SongSortMode.edited.sorted([beta, alpha]).map(\.id), [beta.id, alpha.id])
     }
 
+    func testPlayerMetadataTypographyTracksTheLyricScaleAcrossTheFullRange() {
+        let minimumLyricSize = 28.0
+        let maximumLyricSize = 72.0
+        let expectedRatio = CGFloat(maximumLyricSize / minimumLyricSize)
+
+        XCTAssertEqual(
+            PlayerTypography.titleSize(for: maximumLyricSize)
+                / PlayerTypography.titleSize(for: minimumLyricSize),
+            expectedRatio,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            PlayerTypography.artistSize(for: maximumLyricSize)
+                / PlayerTypography.artistSize(for: minimumLyricSize),
+            expectedRatio,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(PlayerTypography.titleSize(for: minimumLyricSize), 37.8, accuracy: 0.0001)
+        XCTAssertEqual(PlayerTypography.artistSize(for: minimumLyricSize), 20.16, accuracy: 0.0001)
+    }
+
     func testTimingUtilitiesClampShiftAndChooseActiveLine() {
         var lines = [LyricLine.blank(text: "A"), .blank(text: "B"), .blank(text: "C")]
         lines[0].timestampSeconds = 1
@@ -506,6 +527,73 @@ final class SingersLyricsTests: XCTestCase {
         XCTAssertEqual(saved.songs.count, 1)
         XCTAssertEqual(saved.songs[0].title, "Changed")
         XCTAssertEqual(saved.songs[0].lines[0].lyric.plainText, "Line")
+    }
+
+    @MainActor
+    func testAppModelDuplicatesSelectedSongsWithIndependentIdentities() async throws {
+        let store = InMemoryLibraryStore()
+        let model = AppModel(store: store)
+        await model.load()
+
+        var first = model.createSong(
+            appleMusicURL: URL(string: "https://music.apple.com/us/song/test/1")!,
+            metadata: TrackMetadata(title: "First", artist: "Singer One")
+        )
+        first.lines = [
+            LyricLine(
+                id: UUID(),
+                annotation: "note",
+                lyric: .plain("First lyric"),
+                timestampSeconds: 12.34
+            ),
+        ]
+        model.replaceSong(first)
+        model.createSong(
+            appleMusicURL: URL(string: "https://music.apple.com/us/song/test/2")!,
+            metadata: TrackMetadata(title: "Second", artist: "Singer Two")
+        )
+        let originals = model.library.songs
+        let duplicateDate = Date(timeIntervalSince1970: 1_900_000_000)
+
+        let duplicateIDs = model.duplicateSongs(
+            Set(originals.map(\.id)),
+            now: duplicateDate
+        )
+
+        XCTAssertEqual(duplicateIDs.count, 2)
+        XCTAssertEqual(model.selectedSongIDs, duplicateIDs)
+        XCTAssertEqual(model.library.songs.count, 4)
+        XCTAssertEqual(
+            model.library.songs.map(\.title),
+            originals.flatMap { [$0.title, $0.title] }
+        )
+
+        for (index, original) in originals.enumerated() {
+            let storedOriginal = model.library.songs[index * 2]
+            let duplicate = model.library.songs[index * 2 + 1]
+            XCTAssertEqual(storedOriginal, original)
+            XCTAssertTrue(duplicateIDs.contains(duplicate.id))
+            XCTAssertNotEqual(duplicate.id, original.id)
+            XCTAssertEqual(duplicate.title, original.title)
+            XCTAssertEqual(duplicate.artist, original.artist)
+            XCTAssertEqual(duplicate.appleMusicURL, original.appleMusicURL)
+            XCTAssertEqual(duplicate.lines.map(\.annotation), original.lines.map(\.annotation))
+            XCTAssertEqual(duplicate.lines.map(\.lyric), original.lines.map(\.lyric))
+            XCTAssertEqual(
+                duplicate.lines.map(\.timestampSeconds),
+                original.lines.map(\.timestampSeconds)
+            )
+            XCTAssertEqual(duplicate.createdAt, duplicateDate)
+            XCTAssertEqual(duplicate.updatedAt, duplicateDate)
+            XCTAssertEqual(duplicate.lines.count, original.lines.count)
+            for (duplicateLine, originalLine) in zip(duplicate.lines, original.lines) {
+                XCTAssertNotEqual(duplicateLine.id, originalLine.id)
+            }
+        }
+
+        await model.flush()
+        let saved = try await store.load()
+        XCTAssertEqual(saved, model.library)
     }
 
     @MainActor
