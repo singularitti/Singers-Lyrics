@@ -100,6 +100,9 @@ final class SingersLyricsUITests: XCTestCase {
         let newSong = app.buttons["emptyNewSongButton"]
         XCTAssertTrue(newSong.waitForExistence(timeout: 5))
         XCTAssertEqual(newSong.label, "New Song from Apple Music")
+        let importBundle = app.buttons["emptyImportSongBundleButton"]
+        XCTAssertTrue(importBundle.exists)
+        XCTAssertEqual(importBundle.label, "Import Song Bundle…")
         XCTAssertFalse(app.buttons["sidebarEmptyNewSongButton"].exists)
         _ = createSong(in: app)
 
@@ -503,6 +506,8 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertTrue(secondRow.isSelected)
 
         firstRow.rightClick()
+        XCTAssertTrue(app.menuItems["Export Selected Songs…"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.buttons["exportLyricsButton"].label, "Export Selected Songs")
         let duplicate = app.menuItems["Duplicate"]
         XCTAssertTrue(duplicate.waitForExistence(timeout: 3))
         duplicate.click()

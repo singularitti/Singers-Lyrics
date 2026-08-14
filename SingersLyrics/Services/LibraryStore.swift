@@ -87,7 +87,7 @@ actor JSONLibraryStore: LibraryStoring {
     }
 }
 
-private enum LibraryDateCodec {
+enum LibraryDateCodec {
     static func string(from date: Date) -> String {
         var wholeSeconds = floor(date.timeIntervalSince1970)
         var nanoseconds = Int(

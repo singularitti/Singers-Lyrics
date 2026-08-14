@@ -281,6 +281,7 @@
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Configuration/SingersLyrics-Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Singers Lyrics";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Singers Lyrics controls Music to play, pause, seek, and synchronize lyrics.";
@@ -307,6 +308,7 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Configuration/SingersLyrics-Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Singers Lyrics";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Singers Lyrics controls Music to play, pause, seek, and synchronize lyrics.";

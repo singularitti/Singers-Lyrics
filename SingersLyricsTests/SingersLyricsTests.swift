@@ -42,6 +42,98 @@ final class SingersLyricsTests: XCTestCase {
         XCTAssertEqual(try decoder.decode(LibraryDocument.self, from: data), document)
     }
 
+    func testSongBundleRoundTripPreservesEverySongField() throws {
+        let createdAt = Date(timeIntervalSince1970: 1_800_000_000.123456)
+        let updatedAt = Date(timeIntervalSince1970: 1_800_000_123.987654)
+        let styledLyric = StyledText(runs: [
+            TextRun(
+                text: "Rich ",
+                style: TextStyle(
+                    fontFamily: "Avenir Next",
+                    foregroundColor: RGBAColor(red: 12, green: 34, blue: 56, alpha: 200),
+                    bold: true,
+                    italic: false,
+                    underline: true
+                )
+            ),
+            TextRun(
+                text: "lyric",
+                style: TextStyle(
+                    fontFamily: nil,
+                    foregroundColor: nil,
+                    bold: false,
+                    italic: true,
+                    underline: false
+                )
+            ),
+        ])
+        let songs = [
+            Song(
+                id: UUID(),
+                title: "First Song",
+                artist: "First Singer",
+                appleMusicURL: URL(string: "https://music.apple.com/us/song/example/123"),
+                linkedTrackMetadata: TrackMetadata(
+                    title: "Linked Title",
+                    artist: "Linked Singer"
+                ),
+                lines: [
+                    LyricLine(
+                        id: UUID(),
+                        annotation: "complete annotation / pronunciation",
+                        lyric: styledLyric,
+                        timestampSeconds: 12.345678
+                    ),
+                    LyricLine(
+                        id: UUID(),
+                        annotation: "",
+                        lyric: .plain("Untimed line"),
+                        timestampSeconds: nil
+                    ),
+                ],
+                createdAt: createdAt,
+                updatedAt: updatedAt
+            ),
+            Song(
+                id: UUID(),
+                title: "Second Song",
+                artist: "",
+                appleMusicURL: nil,
+                lines: [],
+                createdAt: createdAt,
+                updatedAt: updatedAt
+            ),
+        ]
+        let original = SongBundle(songs: songs)
+
+        let data = try SongBundleCodec.encode(original)
+        let source = try XCTUnwrap(String(data: data, encoding: .utf8))
+        let restored = try SongBundleCodec.decode(data)
+
+        XCTAssertTrue(source.contains("\n"), "The bundle should remain human-readable JSON")
+        XCTAssertTrue(source.contains("\"format\" : \"app.singerslyrics.song-bundle\""))
+        XCTAssertTrue(source.contains("\"annotation\" : \"complete annotation / pronunciation\""))
+        XCTAssertEqual(restored, original)
+    }
+
+    func testSongBundleRejectsUnsupportedVersionsAndDuplicateIdentities() throws {
+        let song = Song.blank(now: Date(timeIntervalSince1970: 1_800_000_000))
+        let futureData = try SongBundleCodec.encode(
+            SongBundle(formatVersion: SongBundle.currentFormatVersion + 1, songs: [song])
+        )
+        XCTAssertThrowsError(try SongBundleCodec.decode(futureData)) { error in
+            XCTAssertEqual(
+                error as? SongBundleError,
+                .unsupportedVersion(SongBundle.currentFormatVersion + 1)
+            )
+        }
+
+        let duplicateData = try SongBundleCodec.encode(SongBundle(songs: [song, song]))
+        XCTAssertThrowsError(try SongBundleCodec.decode(duplicateData)) { error in
+            XCTAssertEqual(error as? SongBundleError, .duplicateSongIDs)
+        }
+    }
+
     func testStyledTextNormalizesAndSplitsOnUTF16Boundaries() {
         let style = TextStyle.plain
         let value = StyledText(runs: [
@@ -672,6 +764,52 @@ final class SingersLyricsTests: XCTestCase {
                 XCTAssertNotEqual(duplicateLine.id, originalLine.id)
             }
         }
+
+        await model.flush()
+        let saved = try await store.load()
+        XCTAssertEqual(saved, model.library)
+    }
+
+    @MainActor
+    func testAppModelImportsBundledSongsAndRegeneratesConflictingIdentities() async throws {
+        let original = Song(
+            id: UUID(),
+            title: "Imported Song",
+            artist: "Imported Singer",
+            appleMusicURL: URL(string: "https://music.apple.com/us/song/test/1"),
+            linkedTrackMetadata: TrackMetadata(title: "Linked Song", artist: "Linked Singer"),
+            lines: [
+                LyricLine(
+                    id: UUID(),
+                    annotation: "imported annotation",
+                    lyric: .plain("Imported lyric"),
+                    timestampSeconds: 4.2
+                ),
+            ],
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000),
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_100)
+        )
+        let store = InMemoryLibraryStore()
+        let model = AppModel(store: store)
+        await model.load()
+
+        XCTAssertEqual(model.importSongs([original]), [original.id])
+        XCTAssertEqual(model.library.songs, [original])
+        XCTAssertEqual(model.selectedSongID, original.id)
+        XCTAssertEqual(model.selectedSongIDs, [original.id])
+
+        let duplicateIDs = model.importSongs([original])
+        let duplicate = try XCTUnwrap(model.library.songs.last)
+        XCTAssertEqual(duplicateIDs, [duplicate.id])
+        XCTAssertNotEqual(duplicate.id, original.id)
+        XCTAssertNotEqual(duplicate.lines[0].id, original.lines[0].id)
+        XCTAssertEqual(duplicate.title, original.title)
+        XCTAssertEqual(duplicate.artist, original.artist)
+        XCTAssertEqual(duplicate.lines[0].annotation, original.lines[0].annotation)
+        XCTAssertEqual(duplicate.lines[0].lyric, original.lines[0].lyric)
+        XCTAssertEqual(duplicate.lines[0].timestampSeconds, original.lines[0].timestampSeconds)
+        XCTAssertEqual(duplicate.createdAt, original.createdAt)
+        XCTAssertEqual(duplicate.updatedAt, original.updatedAt)
 
         await model.flush()
         let saved = try await store.load()

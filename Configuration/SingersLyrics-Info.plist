@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Singers Lyrics Song Bundle</string>
+			<key>UTTypeIdentifier</key>
+			<string>app.singerslyrics.song-bundle</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>singerslyrics</string>
+				</array>
+				<key>public.mime-type</key>
+				<string>application/vnd.singerslyrics.song-bundle+json</string>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

@@ -1,4 +1,6 @@
+import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
@@ -8,7 +10,9 @@ struct ContentView: View {
     @State private var songForDetails: Song?
     @State private var songForLink: Song?
     @State private var importSongID: UUID?
-    @State private var exportSong: Song?
+    @State private var pendingExport: PendingSongExport?
+    @State private var showsSongBundleImporter = false
+    @State private var songBundleImportError: String?
     @State private var exportError: String?
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var workspaceLayout = WorkspaceLayout.both
@@ -62,25 +66,44 @@ struct ContentView: View {
             }
             .fileExporter(
                 isPresented: Binding(
-                    get: { exportSong != nil },
-                    set: { if !$0 { exportSong = nil } }
+                    get: { pendingExport != nil },
+                    set: { if !$0 { pendingExport = nil } }
                 ),
-                document: exportSong.map { LRCFileDocument(song: $0) },
-                contentType: .lrcLyrics,
-                defaultFilename: exportSong.map { exportFilename(for: $0) }
+                document: pendingExport?.document,
+                contentType: pendingExport?.contentType ?? .singersLyricsSongBundle,
+                defaultFilename: pendingExport?.defaultFilename
             ) { result in
                 if case let .failure(error) = result {
                     exportError = error.localizedDescription
                 }
-                exportSong = nil
+                pendingExport = nil
             }
-            .alert("Lyrics Could Not Be Exported", isPresented: Binding(
+            .fileImporter(
+                isPresented: $showsSongBundleImporter,
+                allowedContentTypes: [.singersLyricsSongBundle]
+            ) { result in
+                do {
+                    let url = try result.get()
+                    try importSongBundle(from: url)
+                } catch {
+                    songBundleImportError = error.localizedDescription
+                }
+            }
+            .alert("Export Could Not Be Completed", isPresented: Binding(
                 get: { exportError != nil },
                 set: { if !$0 { exportError = nil } }
             )) {
                 Button("OK", role: .cancel) { exportError = nil }
             } message: {
                 Text(exportError ?? "Unknown error")
+            }
+            .alert("Songs Could Not Be Imported", isPresented: Binding(
+                get: { songBundleImportError != nil },
+                set: { if !$0 { songBundleImportError = nil } }
+            )) {
+                Button("OK", role: .cancel) { songBundleImportError = nil }
+            } message: {
+                Text(songBundleImportError ?? "Unknown error")
             }
             .sheet(item: $songForDetails) { song in
                 SongDetailsSheet(song: song) { title, artist in
@@ -349,14 +372,14 @@ struct ContentView: View {
             .disabled(selectedSong == nil)
 
             Button {
-                exportSong = selectedSong
+                prepareSongBundleExport(model.selectedSongIDs)
             } label: {
                 Image(systemName: "square.and.arrow.up")
             }
-            .help("Export LRC")
-            .accessibilityLabel("Export LRC")
+            .help(songBundleExportLabel)
+            .accessibilityLabel(songBundleExportLabel)
             .accessibilityIdentifier("exportLyricsButton")
-            .disabled(selectedSong == nil)
+            .disabled(model.selectedSongIDs.isEmpty)
         }
         .controlGroupStyle(.navigation)
     }
@@ -446,13 +469,20 @@ struct ContentView: View {
         ContentUnavailableView {
             Label("No Songs Yet", systemImage: "music.note.list")
         } description: {
-            Text("Add a song from Apple Music to begin.")
+            Text("Add a song from Apple Music or import a Singers Lyrics song bundle.")
         } actions: {
-            Button("New Song from Apple Music") {
-                model.isCreatingSong = true
+            HStack {
+                Button("New Song from Apple Music") {
+                    model.isCreatingSong = true
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("emptyNewSongButton")
+
+                Button("Import Song Bundle…") {
+                    showsSongBundleImporter = true
+                }
+                .accessibilityIdentifier("emptyImportSongBundleButton")
             }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("emptyNewSongButton")
         }
     }
 
@@ -509,6 +539,18 @@ struct ContentView: View {
 
         Divider()
 
+        Button(songIDs.count == 1 ? "Export Selected Song…" : "Export Selected Songs…") {
+            prepareSongBundleExport(songIDs)
+        }
+        .disabled(songIDs.isEmpty)
+
+        Button("Export Lyrics as LRC…") {
+            prepareLRCExport(song)
+        }
+        .disabled(song == nil)
+
+        Divider()
+
         Button("Move Up") {
             guard let song else { return }
             sortMode = .manual
@@ -539,14 +581,90 @@ struct ContentView: View {
         visibleSongs.firstIndex { $0.id == song.id } ?? 0
     }
 
-    private func exportFilename(for song: Song) -> String {
+    private var songBundleExportLabel: String {
+        model.selectedSongIDs.count > 1 ? "Export Selected Songs" : "Export Selected Song"
+    }
+
+    private func prepareSongBundleExport(_ ids: Set<UUID>) {
+        let songs = model.library.songs.filter { ids.contains($0.id) }
+        guard !songs.isEmpty else { return }
+        do {
+            pendingExport = PendingSongExport(
+                document: SongExportFileDocument(
+                    data: try SongBundleCodec.encode(SongBundle(songs: songs))
+                ),
+                contentType: .singersLyricsSongBundle,
+                defaultFilename: songBundleFilename(for: songs)
+            )
+        } catch {
+            exportError = error.localizedDescription
+        }
+    }
+
+    private func prepareLRCExport(_ song: Song?) {
+        guard let song else { return }
+        pendingExport = PendingSongExport(
+            document: SongExportFileDocument(data: Data(LRCExporter.render(song: song).utf8)),
+            contentType: .lrcLyrics,
+            defaultFilename: lrcExportFilename(for: song)
+        )
+    }
+
+    private func importSongBundle(from url: URL) throws {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        let bundle = try SongBundleCodec.decode(Data(contentsOf: url))
+        model.importSongs(bundle.songs)
+    }
+
+    private func songBundleFilename(for songs: [Song]) -> String {
+        let source = songs.count == 1
+            ? (songs[0].title.isEmpty ? "Untitled" : songs[0].title)
+            : "Singers Lyrics - \(songs.count) Songs"
+        return safeFilenameStem(source, fallback: "Singers Lyrics") + ".singerslyrics"
+    }
+
+    private func lrcExportFilename(for song: Song) -> String {
         let source = song.title.isEmpty ? "Lyrics" : song.title
+        return safeFilenameStem(source, fallback: "Lyrics") + ".lrc"
+    }
+
+    private func safeFilenameStem(_ source: String, fallback: String) -> String {
         let forbidden = CharacterSet(charactersIn: "/:")
         let safe = source
             .components(separatedBy: forbidden)
             .joined(separator: "-")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return (safe.isEmpty ? "Lyrics" : safe) + ".lrc"
+        return safe.isEmpty ? fallback : safe
+    }
+}
+
+private struct PendingSongExport {
+    var document: SongExportFileDocument
+    var contentType: UTType
+    var defaultFilename: String
+}
+
+private struct SongExportFileDocument: FileDocument {
+    static var readableContentTypes: [UTType] {
+        [.singersLyricsSongBundle, .lrcLyrics]
+    }
+
+    var data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let data = configuration.file.regularFileContents else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        self.data = data
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
     }
 }
 

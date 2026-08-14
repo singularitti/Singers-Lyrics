@@ -242,6 +242,39 @@ final class AppModel {
         return duplicateIDs
     }
 
+    @discardableResult
+    func importSongs(_ songs: [Song]) -> [UUID] {
+        guard !songs.isEmpty else { return [] }
+
+        var occupiedSongIDs = Set(library.songs.map(\.id))
+        var occupiedLineIDs = Set(library.songs.flatMap { $0.lines.map(\.id) })
+        var importedSongs: [Song] = []
+
+        for sourceSong in songs {
+            var song = sourceSong
+            let songIdentityConflicts = occupiedSongIDs.contains(song.id)
+            if songIdentityConflicts {
+                song.id = UUID()
+            }
+            occupiedSongIDs.insert(song.id)
+
+            song.lines = song.lines.map { sourceLine in
+                var line = sourceLine
+                if songIdentityConflicts || occupiedLineIDs.contains(line.id) {
+                    line.id = UUID()
+                }
+                occupiedLineIDs.insert(line.id)
+                return line
+            }
+            importedSongs.append(song)
+        }
+
+        library.songs.append(contentsOf: importedSongs)
+        selectSong(importedSongs.first?.id)
+        markChanged()
+        return importedSongs.map(\.id)
+    }
+
     func deleteSongs(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         library.songs.removeAll { ids.contains($0.id) }
