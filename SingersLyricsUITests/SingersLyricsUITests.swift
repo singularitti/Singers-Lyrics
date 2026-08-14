@@ -135,7 +135,7 @@ final class SingersLyricsUITests: XCTestCase {
     }
 
     @MainActor
-    func testSidebarSortControlSharesSidebarToolbarAndUsesFlatMenu() {
+    func testSidebarToolbarPlacesAddSongBeforeSortMenu() {
         let app = launchApp()
         _ = createSong(
             in: app,
@@ -150,15 +150,14 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertTrue(waitForText(containing: "Zulu", in: firstRow))
 
         let sortMenu = identified("songSortPicker", in: app)
-        let sidebarToggle = app.buttons["Hide Sidebar"]
+        let newSong = identified("newSongButton", in: app)
+        let songList = identified("songList", in: app)
         XCTAssertEqual(sortMenu.label, "Sort Songs")
-        XCTAssertTrue(sidebarToggle.exists)
-        XCTAssertEqual(sortMenu.frame.midY, sidebarToggle.frame.midY, accuracy: 2)
-        XCTAssertFalse(sortMenu.frame.intersects(sidebarToggle.frame))
-        let toolbarItemGap = max(sortMenu.frame.minX, sidebarToggle.frame.minX)
-            - min(sortMenu.frame.maxX, sidebarToggle.frame.maxX)
-        XCTAssertGreaterThanOrEqual(toolbarItemGap, 0)
-        XCTAssertLessThanOrEqual(toolbarItemGap, 12)
+        XCTAssertEqual(newSong.label, "New Song from Apple Music")
+        XCTAssertEqual(newSong.frame.midY, sortMenu.frame.midY, accuracy: 2)
+        XCTAssertLessThanOrEqual(newSong.frame.maxX, sortMenu.frame.minX)
+        XCTAssertLessThanOrEqual(sortMenu.frame.minX - newSong.frame.maxX, 6)
+        XCTAssertEqual(sortMenu.frame.maxX, songList.frame.maxX, accuracy: 12)
 
         sortMenu.click()
         XCTAssertFalse(app.menuItems["Sort"].exists)
@@ -682,7 +681,6 @@ final class SingersLyricsUITests: XCTestCase {
             app.buttons["togglePreviewPanelButton"],
             app.buttons["importLyricsButton"],
             app.buttons["exportLyricsButton"],
-            app.buttons["newSongButton"],
             app.buttons["appleMusicLinkButton"],
             app.buttons["deleteSongButton"],
         ]
@@ -708,7 +706,7 @@ final class SingersLyricsUITests: XCTestCase {
         )
         XCTAssertLessThan(
             app.buttons["exportLyricsButton"].frame.maxX,
-            app.buttons["newSongButton"].frame.minX
+            app.buttons["appleMusicLinkButton"].frame.minX
         )
 
         let dragDistance = max(120, initialLineFrame.width - 388)

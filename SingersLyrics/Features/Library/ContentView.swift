@@ -234,11 +234,21 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var sidebarToolbar: some ToolbarContent {
-        if !model.library.songs.isEmpty {
+        if columnVisibility != .detailOnly, !model.library.songs.isEmpty {
             ToolbarItem(placement: .primaryAction) {
-                songSortMenu
+                sidebarToolbarControls
             }
+            .sharedBackgroundVisibility(.hidden)
         }
+    }
+
+    private var sidebarToolbarControls: some View {
+        HStack(spacing: 6) {
+            newSongButton
+            songSortMenu
+        }
+        .fixedSize()
+        .padding(.trailing, -4)
     }
 
     private var songSortMenu: some View {
@@ -258,8 +268,14 @@ struct ContentView: View {
             }
         } label: {
             Image(systemName: "arrow.up.arrow.down")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 8, height: 8)
         }
         .fixedSize()
+        .menuIndicator(.hidden)
+        .buttonStyle(.borderless)
+        .frame(width: 22, height: 24)
         .help("Sort Songs")
         .accessibilityLabel("Sort Songs")
         .accessibilityValue(sortMode.title)
@@ -348,14 +364,6 @@ struct ContentView: View {
     private var songToolbarButtons: some View {
         ControlGroup {
             Button {
-                model.isCreatingSong = true
-            } label: {
-                Image(systemName: "plus")
-            }
-            .help("New Song from Apple Music")
-            .accessibilityIdentifier("newSongButton")
-
-            Button {
                 songForLink = selectedSong
             } label: {
                 Image(systemName: selectedSong?.appleMusicURL == nil ? "link.badge.plus" : "link")
@@ -376,6 +384,22 @@ struct ContentView: View {
             .disabled(model.selectedSongIDs.isEmpty)
         }
         .controlGroupStyle(.navigation)
+    }
+
+    private var newSongButton: some View {
+        Button {
+            model.isCreatingSong = true
+        } label: {
+            Image(systemName: "plus")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 11, height: 11)
+        }
+        .buttonStyle(.borderless)
+        .frame(width: 22, height: 24)
+        .help("New Song from Apple Music")
+        .accessibilityLabel("New Song from Apple Music")
+        .accessibilityIdentifier("newSongButton")
     }
 
     private var selectedSong: Song? {
