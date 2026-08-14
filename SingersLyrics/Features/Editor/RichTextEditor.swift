@@ -152,7 +152,8 @@ struct RichTextEditor: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
+            guard let textView = notification.object as? NSTextView,
+                  textView.window?.firstResponder === textView else { return }
             activate(textView)
         }
 

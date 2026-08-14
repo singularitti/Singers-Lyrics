@@ -28,6 +28,23 @@ final class SingersLyricsUITests: XCTestCase {
     }
 
     @MainActor
+    private func waitForText(
+        containing expectedText: String,
+        in element: XCUIElement,
+        timeout: TimeInterval = 3
+    ) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                format: "label CONTAINS %@ OR value CONTAINS %@",
+                expectedText,
+                expectedText
+            ),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    @MainActor
     @discardableResult
     private func createSong(
         in app: XCUIApplication,
@@ -102,6 +119,98 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertEqual(playerTitle.label, "Looked Up Song")
         XCTAssertEqual(playerArtist.label, "Looked Up Singer")
         XCTAssertGreaterThanOrEqual(playerArtist.frame.minY - playerTitle.frame.maxY, 4)
+    }
+
+    @MainActor
+    func testMetadataHeaderAlignsWithLyricCells() {
+        let app = launchApp()
+        _ = createSong(in: app)
+
+        XCTAssertEqual(
+            identified("songMetadataHeader", in: app).frame.minX,
+            identified("lyricLine-0", in: app).frame.minX,
+            accuracy: 2,
+            "The song metadata should align with the lyric-cell leading edge"
+        )
+    }
+
+    @MainActor
+    func testSidebarSortControlSharesSidebarToolbarAndUsesFlatMenu() {
+        let app = launchApp()
+        _ = createSong(
+            in: app,
+            link: "https://music.apple.com/us/song/example/111"
+        )
+        _ = createSong(
+            in: app,
+            link: "https://music.apple.com/us/song/example/222"
+        )
+
+        let firstRow = identified("songRow-0", in: app)
+        XCTAssertTrue(waitForText(containing: "Zulu", in: firstRow))
+
+        let sortMenu = identified("songSortPicker", in: app)
+        let sidebarToggle = app.buttons["Hide Sidebar"]
+        XCTAssertEqual(sortMenu.label, "Sort Songs")
+        XCTAssertTrue(sidebarToggle.exists)
+        XCTAssertEqual(sortMenu.frame.midY, sidebarToggle.frame.midY, accuracy: 2)
+        XCTAssertFalse(sortMenu.frame.intersects(sidebarToggle.frame))
+        let toolbarItemGap = max(sortMenu.frame.minX, sidebarToggle.frame.minX)
+            - min(sortMenu.frame.maxX, sidebarToggle.frame.maxX)
+        XCTAssertGreaterThanOrEqual(toolbarItemGap, 0)
+        XCTAssertLessThanOrEqual(toolbarItemGap, 12)
+
+        sortMenu.click()
+        XCTAssertFalse(app.menuItems["Sort"].exists)
+        XCTAssertTrue(app.menuItems["Manual Order"].exists)
+        let titleSort = app.menuItems["Title (A–Z)"]
+        XCTAssertTrue(titleSort.waitForExistence(timeout: 3))
+        titleSort.click()
+        XCTAssertTrue(waitForText(containing: "Alpha", in: firstRow))
+    }
+
+    @MainActor
+    func testScrollingAndSongChangesStartWithNoLyricSelection() {
+        let app = launchApp()
+        _ = createSong(
+            in: app,
+            link: "https://music.apple.com/us/song/example/111"
+        )
+        let importedLyrics = (1...24)
+            .map { "Line \($0)" }
+            .joined(separator: "\n")
+        importLyrics(importedLyrics, in: app)
+
+        let lyricsScrollView = identified("lyricsScrollView", in: app)
+        for _ in 0..<3 {
+            lyricsScrollView.scroll(byDeltaX: 0, deltaY: -400)
+        }
+        let lastLine = identified("lyricLine-23", in: app)
+        XCTAssertTrue(lastLine.waitForExistence(timeout: 3))
+        XCTAssertFalse(lastLine.isSelected)
+        XCTAssertFalse(identified("textEditingPanel", in: app).exists)
+        XCTAssertFalse(identified("lineSelectionPanel", in: app).exists)
+
+        app.textViews["lyricText-23"].click()
+        XCTAssertTrue(identified("textEditingPanel", in: app).waitForExistence(timeout: 3))
+        XCTAssertTrue(lastLine.isSelected)
+
+        _ = createSong(
+            in: app,
+            link: "https://music.apple.com/us/song/example/222"
+        )
+        XCTAssertFalse(identified("lyricLine-0", in: app).isSelected)
+        XCTAssertFalse(identified("textEditingPanel", in: app).exists)
+        XCTAssertFalse(identified("lineSelectionPanel", in: app).exists)
+
+        identified("songRow-1", in: app).click()
+        XCTAssertTrue(waitForText(
+            containing: "Alpha",
+            in: identified("songMetadataHeader", in: app)
+        ))
+        XCTAssertFalse(identified("lyricLine-0", in: app).isSelected)
+        XCTAssertFalse(identified("textEditingPanel", in: app).exists)
+        XCTAssertFalse(identified("lineSelectionPanel", in: app).exists)
     }
 
     @MainActor
@@ -538,6 +647,11 @@ final class SingersLyricsUITests: XCTestCase {
         let clearSelection = identified("clearTimingSelectionButton", in: app)
         var actionRow = identified("timingActionRow", in: app)
         let wideHeader = identified("wideTimingHeader", in: app)
+        let wideControls = identified("wideTimingControls", in: app)
+        let oldValue = identified("timingOldValue", in: app)
+        let jogWheel = identified("timingJogWheel", in: app)
+        let newValue = identified("timingNewValue", in: app)
+        let delayPicker = identified("timingDelayPicker", in: app)
         XCTAssertEqual(clearSelection.label, "Clear line selection")
         XCTAssertEqual(pause.label, "Pause")
         XCTAssertLessThanOrEqual(pause.frame.width, 44)
@@ -548,6 +662,12 @@ final class SingersLyricsUITests: XCTestCase {
         }
         XCTAssertEqual(clearSelection.frame.maxX, actionRow.frame.maxX, accuracy: 3)
         XCTAssertEqual(clearSelection.frame.maxX, wideHeader.frame.maxX, accuracy: 3)
+        XCTAssertEqual(delayPicker.frame.maxX, wideControls.frame.maxX, accuracy: 3)
+        XCTAssertEqual(
+            jogWheel.frame.minX - oldValue.frame.maxX,
+            newValue.frame.minX - jogWheel.frame.maxX,
+            accuracy: 2
+        )
 
         let initialLineFrame = identified("lyricLine-0", in: app).frame
         let editorSplitter = app.splitters.allElementsBoundByIndex

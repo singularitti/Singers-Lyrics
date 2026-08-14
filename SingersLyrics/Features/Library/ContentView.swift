@@ -117,6 +117,9 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 300)
+                .toolbar {
+                    sidebarToolbar
+                }
         } detail: {
             workspace
                 .toolbar {
@@ -195,25 +198,6 @@ struct ContentView: View {
                 }
             }
             .accessibilityIdentifier("songList")
-
-            if !model.library.songs.isEmpty {
-                Divider()
-                HStack {
-                    Spacer(minLength: 4)
-
-                    Text("Sort")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Picker("Sort", selection: $sortModeRaw) {
-                        ForEach(SongSortMode.allCases, id: \.rawValue) { mode in
-                            Text(mode.title).tag(mode.rawValue)
-                        }
-                    }
-                    .labelsHidden()
-                    .accessibilityIdentifier("songSortPicker")
-                }
-                .padding(8)
-            }
         }
         .navigationTitle("Singers Lyrics")
     }
@@ -225,6 +209,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let binding = model.bindingForSelectedSong() {
             LyricsEditorView(song: binding)
+                .id(binding.wrappedValue.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.background)
         } else {
@@ -248,10 +233,45 @@ struct ContentView: View {
     }
 
     @ToolbarContentBuilder
+    private var sidebarToolbar: some ToolbarContent {
+        if !model.library.songs.isEmpty {
+            ToolbarItem(placement: .primaryAction) {
+                songSortMenu
+            }
+        }
+    }
+
+    private var songSortMenu: some View {
+        Menu {
+            ForEach(SongSortMode.allCases, id: \.rawValue) { mode in
+                Toggle(
+                    mode.title,
+                    isOn: Binding(
+                        get: { sortMode == mode },
+                        set: { isSelected in
+                            if isSelected {
+                                sortMode = mode
+                            }
+                        }
+                    )
+                )
+            }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+        }
+        .fixedSize()
+        .help("Sort Songs")
+        .accessibilityLabel("Sort Songs")
+        .accessibilityValue(sortMode.title)
+        .accessibilityIdentifier("songSortPicker")
+    }
+
+    @ToolbarContentBuilder
     private var detailToolbar: some ToolbarContent {
         if let song = selectedSong, workspaceLayout.showsEditor {
             ToolbarItem(placement: .navigation) {
                 songMetadataHeader(for: song)
+                    .padding(.leading, 4)
             }
             .sharedBackgroundVisibility(.hidden)
         }

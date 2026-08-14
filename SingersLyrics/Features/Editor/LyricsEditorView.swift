@@ -70,6 +70,7 @@ struct LyricsEditorView: View {
                     .animation(.snappy(duration: 0.2), value: showsEditingToolbar)
                 }
                 .accessibilityIdentifier("lyricsScrollView")
+                .scrollEdgeEffectStyle(.hard, for: .top)
                 .onChange(of: requestedScrollLineID) { _, id in
                     guard let id else { return }
                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -560,13 +561,23 @@ struct LyricsEditorView: View {
     }
 
     private var wideTimingControls: some View {
-        HStack(spacing: 10) {
-            timingSelectionSummary
-            timingAdjustmentControls
-            stampTimingButton
-            delayPicker
+        HStack(spacing: 0) {
+            HStack(spacing: 10) {
+                timingSelectionSummary
+                timingAdjustmentControls
+            }
+            .fixedSize(horizontal: true, vertical: true)
+
+            Spacer(minLength: 10)
+
+            HStack(spacing: 10) {
+                stampTimingButton
+                delayPicker
+            }
+            .fixedSize(horizontal: true, vertical: true)
         }
-        .fixedSize(horizontal: true, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("wideTimingControls")
     }
@@ -603,6 +614,7 @@ struct LyricsEditorView: View {
                 value: adjustmentOldTimeText,
                 identifier: "timingOldValue"
             )
+            .frame(width: 64, alignment: .trailing)
 
             TimingJogWheel(
                 accessibilityValue: "\(adjustmentOldTimeText) to \(adjustmentNewTimeText)",
@@ -617,6 +629,7 @@ struct LyricsEditorView: View {
                 value: adjustmentNewTimeText,
                 identifier: "timingNewValue"
             )
+            .frame(width: 64, alignment: .leading)
         }
         .fixedSize(horizontal: true, vertical: true)
         .disabled(adjustmentIDs.isEmpty)
@@ -659,7 +672,6 @@ struct LyricsEditorView: View {
                 .foregroundStyle(label == "New" ? Color.accentColor : .secondary)
                 .lineLimit(1)
         }
-        .frame(width: 64, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(label) time")
         .accessibilityValue(value)
