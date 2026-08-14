@@ -156,22 +156,26 @@ struct ContentView: View {
 
     @ViewBuilder
     private var workspace: some View {
-        if model.isLoaded, model.library.songs.isEmpty {
-            emptyLibraryView
-        } else {
+        if !model.isLoaded {
+            ProgressView("Opening Library…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let song = selectedSong,
+                  let songBinding = model.bindingForSelectedSong() {
             switch workspaceLayout {
             case .both:
                 HSplitView {
-                    editorColumn
+                    editorColumn(song: songBinding)
                         .frame(minWidth: 420, idealWidth: 520, maxWidth: .infinity)
-                    playerColumn
+                    playerColumn(song: song)
                         .frame(minWidth: 420, idealWidth: 620, maxWidth: .infinity)
                 }
             case .editorOnly:
-                editorColumn
+                editorColumn(song: songBinding)
             case .playerOnly:
-                playerColumn
+                playerColumn(song: song)
             }
+        } else {
+            songEntryView
         }
     }
 
@@ -225,34 +229,18 @@ struct ContentView: View {
         .navigationTitle("Singers Lyrics")
     }
 
-    @ViewBuilder
-    private var editorColumn: some View {
-        if !model.isLoaded {
-            ProgressView("Opening Library…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let binding = model.bindingForSelectedSong() {
-            LyricsEditorView(song: binding)
-                .id(binding.wrappedValue.id)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.background)
-        } else {
-            emptySelectionPlaceholder
-        }
+    private func editorColumn(song: Binding<Song>) -> some View {
+        LyricsEditorView(song: song)
+            .id(song.wrappedValue.id)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.background)
     }
 
-    private var playerColumn: some View {
-        Group {
-            if !model.isLoaded {
-                ProgressView("Opening Library…")
-            } else if let song = selectedSong {
-                PlayerView(song: song)
-            } else {
-                emptySelectionPlaceholder
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .backgroundExtensionEffect()
+    private func playerColumn(song: Song) -> some View {
+        PlayerView(song: song)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .backgroundExtensionEffect()
     }
 
     @ToolbarContentBuilder
@@ -410,18 +398,27 @@ struct ContentView: View {
     }
 
     private var newSongButton: some View {
-        Button {
-            model.isCreatingSong = true
+        Menu {
+            Button("New Song from Apple Music…") {
+                model.isCreatingSong = true
+            }
+            .accessibilityIdentifier("newSongFromAppleMusicMenuItem")
+
+            Button("Import Song Bundle…") {
+                showsSongBundleImporter = true
+            }
+            .accessibilityIdentifier("importSongBundleMenuItem")
         } label: {
             Image(systemName: "plus")
                 .resizable()
                 .scaledToFit()
                 .frame(width: 11, height: 11)
         }
+        .menuIndicator(.hidden)
         .buttonStyle(.borderless)
         .frame(width: 22, height: 24)
-        .help("New Song from Apple Music")
-        .accessibilityLabel("New Song from Apple Music")
+        .help("Add or Import Songs")
+        .accessibilityLabel("Add or Import Songs")
         .accessibilityIdentifier("newSongButton")
     }
 
@@ -465,11 +462,18 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private var emptyLibraryView: some View {
+    private var songEntryView: some View {
         ContentUnavailableView {
-            Label("No Songs Yet", systemImage: "music.note.list")
+            Label(
+                model.library.songs.isEmpty ? "No Songs Yet" : "No Song Selected",
+                systemImage: "music.note.list"
+            )
         } description: {
-            Text("Add a song from Apple Music or import a Singers Lyrics song bundle.")
+            if model.library.songs.isEmpty {
+                Text("Add a song from Apple Music or import a Singers Lyrics song bundle.")
+            } else {
+                Text("Select a song, add one from Apple Music, or import a Singers Lyrics song bundle.")
+            }
         } actions: {
             HStack {
                 Button("New Song from Apple Music") {
@@ -484,14 +488,7 @@ struct ContentView: View {
                 .accessibilityIdentifier("emptyImportSongBundleButton")
             }
         }
-    }
-
-    private var emptySelectionPlaceholder: some View {
-        ContentUnavailableView(
-            "Select One Song",
-            systemImage: "music.note",
-            description: Text("Select one song to edit lyrics or open the player.")
-        )
+        .accessibilityIdentifier("songEntryView")
     }
 
     private var deleteButtonLabel: String {

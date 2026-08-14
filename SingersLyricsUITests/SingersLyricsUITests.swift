@@ -54,7 +54,12 @@ final class SingersLyricsUITests: XCTestCase {
         if newSong.waitForExistence(timeout: 3) {
             newSong.click()
         } else {
-            app.buttons["newSongButton"].click()
+            let addSongMenu = identified("newSongButton", in: app)
+            XCTAssertTrue(addSongMenu.waitForExistence(timeout: 3))
+            addSongMenu.click()
+            let newSongMenuItem = app.menuItems["New Song from Apple Music…"]
+            XCTAssertTrue(newSongMenuItem.waitForExistence(timeout: 3))
+            newSongMenuItem.click()
         }
         let linkField = app.textFields["appleMusicURLField"]
         XCTAssertTrue(linkField.waitForExistence(timeout: 3))
@@ -138,7 +143,7 @@ final class SingersLyricsUITests: XCTestCase {
     }
 
     @MainActor
-    func testSidebarToolbarPlacesAddSongBeforeSortMenu() {
+    func testSidebarToolbarPlacesAddSongMenuBeforeSortMenu() {
         let app = launchApp()
         _ = createSong(
             in: app,
@@ -153,14 +158,19 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertTrue(waitForText(containing: "Zulu", in: firstRow))
 
         let sortMenu = identified("songSortPicker", in: app)
-        let newSong = identified("newSongButton", in: app)
+        let addSongMenu = identified("newSongButton", in: app)
         let songList = identified("songList", in: app)
         XCTAssertEqual(sortMenu.label, "Sort Songs")
-        XCTAssertEqual(newSong.label, "New Song from Apple Music")
-        XCTAssertEqual(newSong.frame.midY, sortMenu.frame.midY, accuracy: 2)
-        XCTAssertLessThanOrEqual(newSong.frame.maxX, sortMenu.frame.minX)
-        XCTAssertLessThanOrEqual(sortMenu.frame.minX - newSong.frame.maxX, 6)
+        XCTAssertEqual(addSongMenu.label, "Add or Import Songs")
+        XCTAssertEqual(addSongMenu.frame.midY, sortMenu.frame.midY, accuracy: 2)
+        XCTAssertLessThanOrEqual(addSongMenu.frame.maxX, sortMenu.frame.minX)
+        XCTAssertLessThanOrEqual(sortMenu.frame.minX - addSongMenu.frame.maxX, 6)
         XCTAssertEqual(sortMenu.frame.maxX, songList.frame.maxX, accuracy: 12)
+
+        addSongMenu.click()
+        XCTAssertTrue(app.menuItems["New Song from Apple Music…"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.menuItems["Import Song Bundle…"].exists)
+        app.typeKey(.escape, modifierFlags: [])
 
         sortMenu.click()
         XCTAssertFalse(app.menuItems["Sort"].exists)
@@ -169,6 +179,41 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertTrue(titleSort.waitForExistence(timeout: 3))
         titleSort.click()
         XCTAssertTrue(waitForText(containing: "Alpha", in: firstRow))
+    }
+
+    @MainActor
+    func testNoSongSelectionUsesSingleSongEntryView() {
+        let app = launchApp()
+        _ = createSong(
+            in: app,
+            link: "https://music.apple.com/us/song/example/111"
+        )
+        _ = createSong(
+            in: app,
+            link: "https://music.apple.com/us/song/example/222"
+        )
+
+        let selectedRow = identified("songRow-0", in: app)
+        XCTAssertTrue(selectedRow.isSelected)
+        XCUIElement.perform(withKeyModifiers: .command) {
+            selectedRow.click()
+        }
+
+        XCTAssertTrue(app.staticTexts["No Song Selected"].waitForExistence(timeout: 3))
+        XCTAssertEqual(
+            app.descendants(matching: .any).matching(identifier: "songEntryView").count,
+            1
+        )
+        XCTAssertEqual(
+            app.staticTexts.matching(
+                NSPredicate(format: "label == %@", "Select One Song")
+            ).count,
+            0
+        )
+        XCTAssertEqual(app.buttons.matching(identifier: "emptyNewSongButton").count, 1)
+        XCTAssertEqual(app.buttons.matching(identifier: "emptyImportSongBundleButton").count, 1)
+        XCTAssertFalse(identified("lyricsWorkspaceView", in: app).exists)
+        XCTAssertFalse(identified("playerView", in: app).exists)
     }
 
     @MainActor
