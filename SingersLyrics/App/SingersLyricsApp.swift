@@ -166,7 +166,10 @@ private struct AppRootView: View {
 
     var body: some View {
         ContentView(metadataLookup: metadataLookup)
-            .task { await model.load() }
+            .task {
+                await model.load()
+                await model.backfillLinkedTrackMetadata(using: metadataLookup)
+            }
             .onChange(of: scenePhase) { _, phase in
                 guard phase != .active else { return }
                 Task { await model.flush() }

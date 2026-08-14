@@ -17,6 +17,10 @@ final class SingersLyricsTests: XCTestCase {
             title: "Example",
             artist: "Singer",
             appleMusicURL: URL(string: "https://music.apple.com/us/song/example/123"),
+            linkedTrackMetadata: TrackMetadata(
+                title: "Music Example",
+                artist: "Music Singer"
+            ),
             lines: [
                 LyricLine(
                     id: UUID(),
@@ -526,7 +530,85 @@ final class SingersLyricsTests: XCTestCase {
         let saved = try await store.load()
         XCTAssertEqual(saved.songs.count, 1)
         XCTAssertEqual(saved.songs[0].title, "Changed")
+        XCTAssertEqual(
+            saved.songs[0].linkedTrackMetadata,
+            TrackMetadata(title: "Test", artist: "Singer")
+        )
         XCTAssertEqual(saved.songs[0].lines[0].lyric.plainText, "Line")
+    }
+
+    @MainActor
+    func testEditingLegacyDisplayMetadataPreservesTheOriginalMusicMatch() async throws {
+        var legacySong = Song.blank()
+        legacySong.title = "Music Title"
+        legacySong.artist = "Music Singer"
+        legacySong.appleMusicURL = URL(string: "https://music.apple.com/us/song/test/1")!
+        let model = AppModel(
+            store: InMemoryLibraryStore(document: LibraryDocument(songs: [legacySong]))
+        )
+        await model.load()
+
+        var editedSong = legacySong
+        editedSong.title = "Custom Title"
+        editedSong.artist = "Custom Singer"
+        model.replaceSong(editedSong)
+
+        let storedSong = try XCTUnwrap(model.song(withID: legacySong.id))
+        XCTAssertEqual(storedSong.title, "Custom Title")
+        XCTAssertEqual(storedSong.artist, "Custom Singer")
+        XCTAssertEqual(
+            storedSong.linkedTrackMetadata,
+            TrackMetadata(title: "Music Title", artist: "Music Singer")
+        )
+    }
+
+    @MainActor
+    func testLegacyMetadataBackfillRepairsAnAlreadyCustomizedSong() async throws {
+        var legacySong = Song.blank()
+        legacySong.title = "Existing Custom Title"
+        legacySong.artist = "Existing Custom Singer"
+        legacySong.appleMusicURL = URL(string: "https://music.apple.com/us/song/test/111")!
+        let model = AppModel(
+            store: InMemoryLibraryStore(document: LibraryDocument(songs: [legacySong]))
+        )
+        await model.load()
+
+        await model.backfillLinkedTrackMetadata(using: UITestTrackMetadataService())
+
+        let storedSong = try XCTUnwrap(model.song(withID: legacySong.id))
+        XCTAssertEqual(storedSong.title, "Existing Custom Title")
+        XCTAssertEqual(storedSong.artist, "Existing Custom Singer")
+        XCTAssertEqual(
+            storedSong.linkedTrackMetadata,
+            TrackMetadata(title: "Alpha", artist: "First Singer")
+        )
+    }
+
+    @MainActor
+    func testChangingAppleMusicLinkPreservesCustomDisplayMetadata() async throws {
+        let model = AppModel(store: InMemoryLibraryStore())
+        await model.load()
+        var song = model.createSong(
+            appleMusicURL: URL(string: "https://music.apple.com/us/song/old/1")!,
+            metadata: TrackMetadata(title: "Old Music Title", artist: "Old Music Singer")
+        )
+        song.title = "Custom Title"
+        song.artist = "Custom Singer"
+        model.replaceSong(song)
+
+        let newURL = URL(string: "https://music.apple.com/us/song/new/2")!
+        let newMetadata = TrackMetadata(title: "New Music Title", artist: "New Music Singer")
+        model.updateAppleMusicLink(
+            for: song.id,
+            appleMusicURL: newURL,
+            metadata: newMetadata
+        )
+
+        let storedSong = try XCTUnwrap(model.song(withID: song.id))
+        XCTAssertEqual(storedSong.title, "Custom Title")
+        XCTAssertEqual(storedSong.artist, "Custom Singer")
+        XCTAssertEqual(storedSong.appleMusicURL, newURL)
+        XCTAssertEqual(storedSong.linkedTrackMetadata, newMetadata)
     }
 
     @MainActor
@@ -779,6 +861,43 @@ final class SingersLyricsTests: XCTestCase {
     }
 
     @MainActor
+    func testDisplayMetadataEditKeepsTheEstablishedMusicSession() async {
+        var song = linkedSong(title: "Music Title", artist: "Music Singer")
+        let controller = MockMusicController(states: [
+            MusicState(
+                state: .playing,
+                position: 4,
+                duration: 180,
+                trackName: "Music Title",
+                trackArtist: "Music Singer",
+                trackPersistentID: "TARGET"
+            ),
+            MusicState(
+                state: .playing,
+                position: 5,
+                duration: 180,
+                trackName: "Music Title",
+                trackArtist: "Music Singer",
+                trackPersistentID: "TARGET"
+            ),
+        ])
+        let model = MusicPlaybackModel(controller: controller)
+        model.beginMonitoring(song)
+        await model.refresh()
+
+        song.title = "Custom Title"
+        song.artist = "Custom Singer"
+        model.beginMonitoring(song)
+        await model.refresh()
+
+        let stopCount = await controller.recordedStopCount()
+        XCTAssertTrue(model.isPlaying(song))
+        XCTAssertEqual(model.state.position, 5)
+        XCTAssertNil(model.issue)
+        XCTAssertEqual(stopCount, 0)
+    }
+
+    @MainActor
     func testSongAwarePlaybackPositionRejectsANewPersistentIDWithMatchingMetadata() async {
         let song = linkedSong(title: "Expected", artist: "Singer")
         let controller = MockMusicController(states: [
@@ -886,6 +1005,43 @@ final class SingersLyricsTests: XCTestCase {
         let seek = await controller.recordedSeek()
         XCTAssertEqual(openCount, 1)
         XCTAssertEqual(seek, 0)
+        XCTAssertNil(model.issue)
+        XCTAssertTrue(model.isPlaying(song))
+    }
+
+    @MainActor
+    func testLinkedTrackStartupUsesMusicMetadataAfterDisplayMetadataChanges() async {
+        var song = linkedSong(title: "Music Title", artist: "Music Singer")
+        song.title = "Custom Title"
+        song.artist = "Custom Singer"
+        let controller = MockMusicController(states: [
+            MusicState(
+                state: .stopped,
+                trackName: "Previous",
+                trackArtist: "Someone Else",
+                trackPersistentID: "OLD"
+            ),
+            MusicState(
+                state: .paused,
+                duration: 200,
+                trackName: "Music Title",
+                trackArtist: "Music Singer",
+                trackPersistentID: "TARGET"
+            ),
+        ])
+        let model = MusicPlaybackModel(
+            controller: controller,
+            startupPollInterval: .zero,
+            startupMaxSamples: 1
+        )
+
+        await model.play(song, from: 0)
+
+        let openedMetadata = await controller.recordedOpenedMetadata()
+        XCTAssertEqual(
+            openedMetadata,
+            TrackMetadata(title: "Music Title", artist: "Music Singer")
+        )
         XCTAssertNil(model.issue)
         XCTAssertTrue(model.isPlaying(song))
     }
@@ -1062,6 +1218,7 @@ final class SingersLyricsTests: XCTestCase {
         song.title = title
         song.artist = artist
         song.appleMusicURL = URL(string: "https://music.apple.com/us/song/test/1")!
+        song.linkedTrackMetadata = TrackMetadata(title: title, artist: artist)
         return song
     }
 }
@@ -1114,6 +1271,7 @@ private actor MockMusicController: MusicControlling {
     var lastPositionOnlySeek: Double?
     var stopCount = 0
     var openCount = 0
+    var openedMetadata: TrackMetadata?
 
     init(states: [MusicState] = []) {
         self.states = states
@@ -1127,6 +1285,7 @@ private actor MockMusicController: MusicControlling {
     }
     func openTrack(_ url: URL, title: String, artist: String) async -> MusicActionResult {
         openCount += 1
+        openedMetadata = TrackMetadata(title: title, artist: artist)
         return MusicActionResult(succeeded: true, permissionDenied: false)
     }
     func playPause() async -> MusicState {
@@ -1155,4 +1314,5 @@ private actor MockMusicController: MusicControlling {
     func recordedPositionOnlySeek() -> Double? { lastPositionOnlySeek }
     func recordedStopCount() -> Int { stopCount }
     func recordedOpenCount() -> Int { openCount }
+    func recordedOpenedMetadata() -> TrackMetadata? { openedMetadata }
 }

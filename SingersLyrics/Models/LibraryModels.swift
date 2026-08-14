@@ -17,9 +17,14 @@ struct Song: Codable, Equatable, Identifiable, Sendable {
     var title: String
     var artist: String
     var appleMusicURL: URL?
+    var linkedTrackMetadata: TrackMetadata? = nil
     var lines: [LyricLine]
     var createdAt: Date
     var updatedAt: Date
+
+    var playbackMetadata: TrackMetadata {
+        linkedTrackMetadata ?? TrackMetadata(title: title, artist: artist)
+    }
 
     static func blank(now: Date = Date()) -> Song {
         Song(
@@ -242,7 +247,7 @@ struct MusicState: Equatable, Sendable {
     var permissionDenied = false
 }
 
-struct TrackMetadata: Equatable, Sendable {
+struct TrackMetadata: Codable, Equatable, Sendable {
     var title: String
     var artist: String
 }

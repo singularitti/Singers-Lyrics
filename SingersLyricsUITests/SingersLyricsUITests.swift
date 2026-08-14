@@ -245,8 +245,8 @@ final class SingersLyricsUITests: XCTestCase {
         XCTAssertTrue(link.waitForNonExistence(timeout: 3))
         var metadata = identified("songMetadataHeader", in: app)
         XCTAssertTrue(metadata.waitForExistence(timeout: 3))
-        XCTAssertTrue(metadata.label.contains("Alpha"))
-        XCTAssertTrue(metadata.label.contains("First Singer"))
+        XCTAssertTrue(metadata.label.contains("Edited Song"))
+        XCTAssertTrue(metadata.label.contains("Edited Singer"))
         XCTAssertEqual(app.buttons["appleMusicLinkButton"].value as? String, "Linked")
 
         let editor = identified("lyricsWorkspaceView", in: app)

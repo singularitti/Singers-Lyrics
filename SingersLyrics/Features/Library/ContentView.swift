@@ -41,11 +41,11 @@ struct ContentView: View {
             }
             .sheet(item: $songForLink) { song in
                 AppleMusicLinkSheet(song: song, lookup: metadataLookup) { url, metadata in
-                    var updated = song
-                    updated.appleMusicURL = url
-                    updated.title = metadata.title
-                    updated.artist = metadata.artist
-                    model.replaceSong(updated)
+                    model.updateAppleMusicLink(
+                        for: song.id,
+                        appleMusicURL: url,
+                        metadata: metadata
+                    )
                 }
             }
             .sheet(isPresented: Binding(
@@ -622,7 +622,7 @@ private struct AppleMusicLinkSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(song == nil ? "New Song from Apple Music" : "Change Apple Music Link")
                 .font(.title2.bold())
-            Text("Paste the song’s Apple Music link. The title and singer will come from Apple Music metadata.")
+            Text(linkDescription)
                 .foregroundStyle(.secondary)
             TextField("https://music.apple.com/…", text: $linkText)
                 .textFieldStyle(.roundedBorder)
@@ -654,6 +654,13 @@ private struct AppleMusicLinkSheet: View {
         .padding(20)
         .frame(width: 520)
         .onAppear { linkFieldFocused = true }
+    }
+
+    private var linkDescription: String {
+        if song == nil {
+            return "Paste the song’s Apple Music link. The title and singer will come from Apple Music metadata."
+        }
+        return "Paste the song’s Apple Music link. Its Music metadata will be refreshed without changing the title and singer shown in this app."
     }
 
     @MainActor

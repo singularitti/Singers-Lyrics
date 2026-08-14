@@ -239,9 +239,10 @@ struct LyricsEditorView: View {
     }
 
     private var playbackIdentity: TimingPlaybackIdentity {
-        TimingPlaybackIdentity(
-            title: song.title,
-            artist: song.artist,
+        let metadata = song.playbackMetadata
+        return TimingPlaybackIdentity(
+            title: metadata.title,
+            artist: metadata.artist,
             appleMusicURL: song.appleMusicURL
         )
     }

@@ -251,9 +251,10 @@ private struct PlaybackTarget: Equatable {
     var url: URL?
 
     init(song: Song) {
+        let metadata = song.playbackMetadata
         songID = song.id
-        title = song.title
-        artist = song.artist
+        title = metadata.title
+        artist = metadata.artist
         url = song.appleMusicURL
     }
 

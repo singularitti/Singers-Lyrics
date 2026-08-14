@@ -12,6 +12,16 @@ struct StorageIssue: Identifiable {
 @MainActor
 @Observable
 final class AppModel {
+    private struct LinkedTrackCandidate: Sendable {
+        var songID: UUID
+        var url: URL
+    }
+
+    private struct LinkedTrackLookupResult: Sendable {
+        var candidate: LinkedTrackCandidate
+        var metadata: TrackMetadata?
+    }
+
     private let store: any LibraryStoring
     private var saveTask: Task<Void, Never>?
     private var isDirty = false
@@ -48,6 +58,71 @@ final class AppModel {
             )
         }
         isLoaded = true
+    }
+
+    func backfillLinkedTrackMetadata(using lookup: any TrackMetadataLookingUp) async {
+        let candidates = library.songs.compactMap { song -> LinkedTrackCandidate? in
+            guard song.linkedTrackMetadata == nil, let url = song.appleMusicURL else {
+                return nil
+            }
+            return LinkedTrackCandidate(songID: song.id, url: url)
+        }
+        guard !candidates.isEmpty else { return }
+
+        let resolve: @Sendable (LinkedTrackCandidate) async -> LinkedTrackLookupResult = {
+            candidate in
+            let metadata: TrackMetadata?
+            do {
+                metadata = try await lookup.lookup(url: candidate.url)
+            } catch {
+                metadata = nil
+            }
+            return LinkedTrackLookupResult(candidate: candidate, metadata: metadata)
+        }
+
+        let results = await withTaskGroup(
+            of: LinkedTrackLookupResult.self,
+            returning: [LinkedTrackLookupResult].self
+        ) { group in
+            let maximumConcurrentLookups = 4
+            var nextCandidateIndex = 0
+            var results: [LinkedTrackLookupResult] = []
+
+            while nextCandidateIndex < min(maximumConcurrentLookups, candidates.count) {
+                let candidate = candidates[nextCandidateIndex]
+                nextCandidateIndex += 1
+                group.addTask { await resolve(candidate) }
+            }
+
+            while let result = await group.next() {
+                results.append(result)
+                if nextCandidateIndex < candidates.count {
+                    let candidate = candidates[nextCandidateIndex]
+                    nextCandidateIndex += 1
+                    group.addTask { await resolve(candidate) }
+                }
+            }
+            return results
+        }
+
+        var changed = false
+        for result in results {
+            guard let metadata = result.metadata,
+                  !metadata.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let index = library.songs.firstIndex(where: {
+                      $0.id == result.candidate.songID
+                  }),
+                  library.songs[index].appleMusicURL == result.candidate.url,
+                  library.songs[index].linkedTrackMetadata == nil else {
+                continue
+            }
+            library.songs[index].linkedTrackMetadata = metadata
+            changed = true
+        }
+
+        if changed {
+            markChanged()
+        }
     }
 
     func selectSong(_ id: UUID?) {
@@ -96,15 +171,45 @@ final class AppModel {
         song.title = metadata.title
         song.artist = metadata.artist
         song.appleMusicURL = appleMusicURL
+        song.linkedTrackMetadata = metadata
         library.songs.insert(song, at: 0)
         selectSong(song.id)
         markChanged()
         return song
     }
 
+    func updateAppleMusicLink(
+        for songID: UUID,
+        appleMusicURL: URL,
+        metadata: TrackMetadata
+    ) {
+        guard var song = song(withID: songID) else { return }
+        song.appleMusicURL = appleMusicURL
+        song.linkedTrackMetadata = metadata
+        replaceSong(song)
+    }
+
     func replaceSong(_ song: Song) {
         guard let index = library.songs.firstIndex(where: { $0.id == song.id }) else { return }
+        let existing = library.songs[index]
         var updated = song
+
+        if updated.appleMusicURL == existing.appleMusicURL,
+           updated.linkedTrackMetadata == nil {
+            if let linkedTrackMetadata = existing.linkedTrackMetadata {
+                updated.linkedTrackMetadata = linkedTrackMetadata
+            } else if existing.appleMusicURL != nil,
+                      updated.title != existing.title || updated.artist != existing.artist {
+                // Version-1 libraries originally used the display metadata for
+                // Music matching. Preserve those pre-edit values the first time
+                // a legacy song's visible title or singer is customized.
+                updated.linkedTrackMetadata = TrackMetadata(
+                    title: existing.title,
+                    artist: existing.artist
+                )
+            }
+        }
+
         updated.updatedAt = Date()
         library.songs[index] = updated
         markChanged()
