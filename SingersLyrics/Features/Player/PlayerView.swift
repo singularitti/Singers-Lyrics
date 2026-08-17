@@ -129,65 +129,59 @@ struct PlayerView: View {
     }
 
     private func lyricsScroller(position: Double) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    // Metadata scrolls with the presentation, but is deliberately
-                    // outside song.lines so it never receives a timestamp or index.
-                    songHeader
-                        .padding(.bottom, 64)
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView([.horizontal, .vertical]) {
+                    LazyVStack(spacing: 0) {
+                        // Metadata scrolls with the presentation, but is deliberately
+                        // outside song.lines so it never receives a timestamp or index.
+                        songHeader
+                            .padding(.bottom, 64)
 
-                    if song.lines.allSatisfy({ $0.lyric.plainText.isEmpty }) {
-                        ContentUnavailableView(
-                            "No Lyrics Yet",
-                            systemImage: "text.quote",
-                            description: Text("Open the editor to add and format lyrics.")
-                        )
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 48)
-                    } else {
-                        LazyVStack(spacing: 0) {
-                            ForEach(Array(song.lines.enumerated()), id: \.element.id) { index, line in
-                                lyricRow(line, index: index)
-                                    .id(line.id)
+                        if song.lines.allSatisfy({ $0.lyric.plainText.isEmpty }) {
+                            ContentUnavailableView(
+                                "No Lyrics Yet",
+                                systemImage: "text.quote",
+                                description: Text("Open the editor to add and format lyrics.")
+                            )
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 48)
+                        } else {
+                            LazyVStack(spacing: 0) {
+                                ForEach(Array(song.lines.enumerated()), id: \.element.id) { index, line in
+                                    lyricRow(line, index: index)
+                                        .id(line.id)
+                                }
                             }
+                            .scrollTargetLayout()
                         }
-                        .scrollTargetLayout()
+                    }
+                    .frame(minWidth: max(0, geometry.size.width - 64))
+                    .padding(.vertical, 280)
+                    .padding(.horizontal, 32)
+                }
+                .scrollIndicators(.hidden, axes: .vertical)
+                .scrollIndicators(.visible, axes: .horizontal)
+                .accessibilityIdentifier("playerLyricsScrollView")
+                .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+                .onScrollPhaseChange { _, phase in
+                    if phase == .interacting || phase == .tracking || phase == .decelerating {
+                        autoFollow = false
                     }
                 }
-                .padding(.vertical, 280)
-                .padding(.horizontal, 32)
-            }
-            .scrollIndicators(.hidden)
-            .mask {
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .black, location: 0.16),
-                        .init(color: .black, location: 0.84),
-                        .init(color: .clear, location: 1),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
-            .onScrollPhaseChange { _, phase in
-                if phase == .interacting || phase == .tracking || phase == .decelerating {
-                    autoFollow = false
+                .onChange(
+                    of: TimingUtilities.activeLineIndex(in: song.lines, position: position)
+                ) { _, next in
+                    followLyricLine(next, using: proxy)
                 }
-            }
-            .onChange(
-                of: TimingUtilities.activeLineIndex(in: song.lines, position: position)
-            ) { _, next in
-                followLyricLine(next, using: proxy)
-            }
-            .onChange(of: playback.isPlaying(song)) { _, isPlaying in
-                guard isPlaying else { return }
-                followLyricLine(
-                    TimingUtilities.activeLineIndex(in: song.lines, position: position),
-                    force: true,
-                    using: proxy
-                )
+                .onChange(of: playback.isPlaying(song)) { _, isPlaying in
+                    guard isPlaying else { return }
+                    followLyricLine(
+                        TimingUtilities.activeLineIndex(in: song.lines, position: position),
+                        force: true,
+                        using: proxy
+                    )
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -223,6 +217,7 @@ struct PlayerView: View {
                     Text(line.annotation)
                         .font(.system(size: annotationSize).italic())
                         .foregroundStyle(isActive ? .secondary : .tertiary)
+                        .fixedSize(horizontal: true, vertical: true)
                 }
                 Text(
                     AttributedTextCodec.makeSwiftUIAttributedString(
@@ -232,8 +227,9 @@ struct PlayerView: View {
                     )
                 )
                 .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: true, vertical: true)
             }
-            .fixedSize(horizontal: false, vertical: true)
+            .fixedSize(horizontal: true, vertical: true)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.vertical, 14)
             .scaleEffect(isActive ? 1.15 : 0.9)
@@ -246,11 +242,12 @@ struct PlayerView: View {
 
     private func transport(position: Double) -> some View {
         VStack(spacing: 10) {
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 Text(formatTime(isScrubbing ? scrubPosition : position))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .frame(width: 48, alignment: .leading)
+                    .frame(width: 44, alignment: .leading)
+                    .fixedSize()
 
                 Slider(
                     value: Binding(
@@ -269,30 +266,26 @@ struct PlayerView: View {
                         }
                     }
                 )
+                .frame(minWidth: 72)
+                .layoutPriority(1)
                 .accessibilityIdentifier("playbackSlider")
 
                 Text(formatTime(playback.state.duration))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .frame(width: 48, alignment: .trailing)
+                    .frame(width: 44, alignment: .trailing)
+                    .fixedSize()
             }
+            .frame(maxWidth: .infinity)
 
-            HStack {
-                Label(
-                    nowPlayingLabel,
-                    systemImage: "music.note"
-                )
-                .lineLimit(1)
-                .foregroundStyle(.secondary)
-
-                Spacer()
-
+            HStack(spacing: 12) {
                 Button {
                     lyricSize = max(28, lyricSize - 2)
                 } label: {
                     Image(systemName: "textformat.size.smaller")
                 }
                 .accessibilityLabel("Smaller lyrics")
+                .accessibilityIdentifier("smallerLyricsButton")
 
                 Button {
                     lyricSize = min(72, lyricSize + 2)
@@ -300,6 +293,7 @@ struct PlayerView: View {
                     Image(systemName: "textformat.size.larger")
                 }
                 .accessibilityLabel("Larger lyrics")
+                .accessibilityIdentifier("largerLyricsButton")
 
                 Button {
                     Task {
@@ -314,18 +308,15 @@ struct PlayerView: View {
                 .accessibilityLabel(playback.isPlaying(song) ? "Pause" : "Play")
                 .accessibilityIdentifier("playerPlayPauseButton")
             }
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .fixedSize(horizontal: false, vertical: true)
         .background(.bar)
-    }
-
-    private var nowPlayingLabel: String {
-        guard !playback.state.trackName.isEmpty else {
-            return song.title.isEmpty ? "Untitled" : song.title
-        }
-        return playback.state.trackArtist.isEmpty
-            ? playback.state.trackName
-            : "\(playback.state.trackName) — \(playback.state.trackArtist)"
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("playerTransport")
     }
 }

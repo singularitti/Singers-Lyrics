@@ -1,6 +1,29 @@
+import AppKit
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
+
+enum AppLayoutMetrics {
+    static let minimumWindowWidth: CGFloat = 900
+    static let minimumWindowHeight: CGFloat = 560
+    static let minimumSidebarWidth: CGFloat = 160
+    static let idealSidebarWidth: CGFloat = 220
+    static let maximumSidebarWidth: CGFloat = 300
+    static let minimumEditorColumnWidth: CGFloat = 360
+    static let minimumPlayerColumnWidth: CGFloat = 500
+    static let metadataHeaderHorizontalInset: CGFloat = 16
+    static let maximumMetadataHeaderWidth: CGFloat = 360
+    static let sidebarCollapseWidth: CGFloat = 1_020
+    static let sidebarRestoreWidth: CGFloat = 1_080
+
+    static func metadataHeaderWidth(forEditorWidth width: CGFloat) -> CGFloat {
+        guard width > 0 else { return 0 }
+        return min(
+            maximumMetadataHeaderWidth,
+            max(0, width - 2 * metadataHeaderHorizontalInset)
+        )
+    }
+}
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
@@ -15,7 +38,9 @@ struct ContentView: View {
     @State private var songBundleImportError: String?
     @State private var exportError: String?
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @State private var automaticallyCollapsedSidebar = false
     @State private var workspaceLayout = WorkspaceLayout.both
+    @State private var editorColumnWidth: CGFloat = AppLayoutMetrics.minimumEditorColumnWidth
     @AppStorage(PreferenceKey.sortMode) private var sortModeRaw = SongSortMode.manual.rawValue
 
     private var sortMode: SongSortMode {
@@ -33,8 +58,16 @@ struct ContentView: View {
 
     var body: some View {
         splitView
-            .navigationSplitViewStyle(.prominentDetail)
-            .frame(minWidth: 1_180, minHeight: 560)
+            .navigationSplitViewStyle(.balanced)
+            .frame(
+                minWidth: AppLayoutMetrics.minimumWindowWidth,
+                minHeight: AppLayoutMetrics.minimumWindowHeight
+            )
+            .onGeometryChange(for: CGFloat.self, of: { proxy in
+                proxy.size.width
+            }) { width in
+                updateSidebarVisibility(for: width)
+            }
             .sheet(isPresented: Binding(
                 get: { model.isCreatingSong },
                 set: { model.isCreatingSong = $0 }
@@ -139,17 +172,16 @@ struct ContentView: View {
     private var splitView: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
-                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 300)
-                .toolbar {
-                    sidebarToolbar
-                }
+                .navigationSplitViewColumnWidth(
+                    min: AppLayoutMetrics.minimumSidebarWidth,
+                    ideal: AppLayoutMetrics.idealSidebarWidth,
+                    max: AppLayoutMetrics.maximumSidebarWidth
+                )
         } detail: {
             workspace
                 .toolbar {
                     detailToolbar
                 }
-                .searchable(text: $searchText, placement: .toolbar, prompt: "Search songs")
-                .searchPresentationToolbarBehavior(.avoidHidingContent)
                 .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         }
     }
@@ -165,9 +197,17 @@ struct ContentView: View {
             case .both:
                 HSplitView {
                     editorColumn(song: songBinding)
-                        .frame(minWidth: 420, idealWidth: 520, maxWidth: .infinity)
+                        .frame(
+                            minWidth: AppLayoutMetrics.minimumEditorColumnWidth,
+                            idealWidth: 520,
+                            maxWidth: .infinity
+                        )
                     playerColumn(song: song)
-                        .frame(minWidth: 420, idealWidth: 620, maxWidth: .infinity)
+                        .frame(
+                            minWidth: AppLayoutMetrics.minimumPlayerColumnWidth,
+                            idealWidth: 620,
+                            maxWidth: .infinity
+                        )
                 }
             case .editorOnly:
                 editorColumn(song: songBinding)
@@ -181,6 +221,19 @@ struct ContentView: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
+            if !model.library.songs.isEmpty {
+                HStack {
+                    Spacer(minLength: 0)
+                    sidebarToolbarControls
+                }
+                .padding(.horizontal, 8)
+                .frame(minHeight: 32)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("inlineSidebarControls")
+
+                Divider()
+            }
+
             Table(
                 visibleSongs,
                 selection: Binding(
@@ -234,6 +287,11 @@ struct ContentView: View {
             .id(song.wrappedValue.id)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.background)
+            .onGeometryChange(for: CGFloat.self, of: { proxy in
+                proxy.size.width
+            }) { width in
+                editorColumnWidth = width
+            }
     }
 
     private func playerColumn(song: Song) -> some View {
@@ -243,23 +301,13 @@ struct ContentView: View {
             .backgroundExtensionEffect()
     }
 
-    @ToolbarContentBuilder
-    private var sidebarToolbar: some ToolbarContent {
-        if columnVisibility != .detailOnly, !model.library.songs.isEmpty {
-            ToolbarItem(placement: .primaryAction) {
-                sidebarToolbarControls
-            }
-            .sharedBackgroundVisibility(.hidden)
-        }
-    }
-
     private var sidebarToolbarControls: some View {
         HStack(spacing: 6) {
             newSongButton
             songSortMenu
         }
+        .labelStyle(.iconOnly)
         .fixedSize()
-        .padding(.trailing, -4)
     }
 
     private var songSortMenu: some View {
@@ -278,15 +326,11 @@ struct ContentView: View {
                 )
             }
         } label: {
-            Image(systemName: "arrow.up.arrow.down")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 8, height: 8)
+            Label("Sort", systemImage: "arrow.up.arrow.down")
         }
         .fixedSize()
         .menuIndicator(.hidden)
         .buttonStyle(.borderless)
-        .frame(width: 22, height: 24)
         .help("Sort Songs")
         .accessibilityLabel("Sort Songs")
         .accessibilityValue(sortMode.title)
@@ -299,26 +343,42 @@ struct ContentView: View {
             ToolbarItem(placement: .navigation) {
                 songMetadataHeader(for: song)
                     .padding(.leading, 4)
+                    .frame(width: metadataHeaderWidth, alignment: .leading)
+                    .clipped()
             }
             .sharedBackgroundVisibility(.hidden)
         }
 
         ToolbarSpacer(.flexible, placement: .primaryAction)
 
-        ToolbarItem(placement: .primaryAction) {
+        ToolbarItemGroup(placement: .primaryAction) {
             workspaceToolbarButtons
+        } label: {
+            Text("Workspace")
         }
 
         ToolbarSpacer(.fixed, placement: .primaryAction)
 
-        ToolbarItem(placement: .primaryAction) {
+        ToolbarItemGroup(placement: .primaryAction) {
             lyricsFileToolbarButtons
+        } label: {
+            Text("Lyrics")
         }
 
         ToolbarSpacer(.fixed, placement: .primaryAction)
 
-        ToolbarItem(placement: .primaryAction) {
+        ToolbarItemGroup(placement: .primaryAction) {
             songToolbarButtons
+        } label: {
+            Text("Song")
+        }
+
+        ToolbarItemGroup(placement: .primaryAction) {
+            ToolbarSearchField(text: $searchText)
+                .frame(width: 180, height: 24)
+                .accessibilityIdentifier("songSearchField")
+        } label: {
+            Text("Search")
         }
     }
 
@@ -327,7 +387,7 @@ struct ContentView: View {
             Button {
                 toggleWorkspaceColumn(.editor)
             } label: {
-                Image(systemName: "rectangle.leadinghalf.inset.filled")
+                Label("Editor", systemImage: "rectangle.leadinghalf.inset.filled")
             }
             .help(workspaceToggleLabel(for: .editor))
             .accessibilityLabel(workspaceToggleLabel(for: .editor))
@@ -337,7 +397,7 @@ struct ContentView: View {
             Button {
                 toggleWorkspaceColumn(.player)
             } label: {
-                Image(systemName: "rectangle.trailinghalf.inset.filled")
+                Label("Player", systemImage: "rectangle.trailinghalf.inset.filled")
             }
             .help(workspaceToggleLabel(for: .player))
             .accessibilityLabel(workspaceToggleLabel(for: .player))
@@ -345,6 +405,7 @@ struct ContentView: View {
             .accessibilityValue(workspaceLayout.accessibilityValue)
         }
         .controlGroupStyle(.navigation)
+        .fixedSize()
     }
 
     private var lyricsFileToolbarButtons: some View {
@@ -352,7 +413,7 @@ struct ContentView: View {
             Button {
                 importSongID = selectedSong?.id
             } label: {
-                Image(systemName: "square.and.arrow.down")
+                Label("Import", systemImage: "square.and.arrow.down")
             }
             .help("Import Lyrics")
             .accessibilityLabel("Import Lyrics")
@@ -362,7 +423,7 @@ struct ContentView: View {
             Button {
                 prepareSongBundleExport(model.selectedSongIDs)
             } label: {
-                Image(systemName: "square.and.arrow.up")
+                Label("Export", systemImage: "square.and.arrow.up")
             }
             .help(songBundleExportLabel)
             .accessibilityLabel(songBundleExportLabel)
@@ -370,6 +431,7 @@ struct ContentView: View {
             .disabled(model.selectedSongIDs.isEmpty)
         }
         .controlGroupStyle(.navigation)
+        .fixedSize()
     }
 
     private var songToolbarButtons: some View {
@@ -377,7 +439,10 @@ struct ContentView: View {
             Button {
                 songForLink = selectedSong
             } label: {
-                Image(systemName: selectedSong?.appleMusicURL == nil ? "link.badge.plus" : "link")
+                Label(
+                    "Music Link",
+                    systemImage: selectedSong?.appleMusicURL == nil ? "link.badge.plus" : "link"
+                )
             }
             .help("Apple Music Link")
             .accessibilityIdentifier("appleMusicLinkButton")
@@ -387,7 +452,7 @@ struct ContentView: View {
             Button(role: .destructive) {
                 prepareSongDeletion(model.selectedSongIDs)
             } label: {
-                Image(systemName: "trash")
+                Label("Delete", systemImage: "trash")
             }
             .help(deleteButtonLabel)
             .accessibilityLabel(deleteButtonLabel)
@@ -395,6 +460,7 @@ struct ContentView: View {
             .disabled(model.selectedSongIDs.isEmpty)
         }
         .controlGroupStyle(.navigation)
+        .fixedSize()
     }
 
     private var newSongButton: some View {
@@ -409,14 +475,10 @@ struct ContentView: View {
             }
             .accessibilityIdentifier("importSongBundleMenuItem")
         } label: {
-            Image(systemName: "plus")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 11, height: 11)
+            Label("Add Songs", systemImage: "plus")
         }
         .menuIndicator(.hidden)
         .buttonStyle(.borderless)
-        .frame(width: 22, height: 24)
         .help("Add or Import Songs")
         .accessibilityLabel("Add or Import Songs")
         .accessibilityIdentifier("newSongButton")
@@ -425,6 +487,26 @@ struct ContentView: View {
     private var selectedSong: Song? {
         guard let selectedSongID = model.selectedSongID else { return nil }
         return model.song(withID: selectedSongID)
+    }
+
+    private var metadataHeaderWidth: CGFloat {
+        AppLayoutMetrics.metadataHeaderWidth(forEditorWidth: editorColumnWidth)
+    }
+
+    private var sidebarIsVisible: Bool {
+        columnVisibility != .detailOnly
+    }
+
+    private func updateSidebarVisibility(for width: CGFloat) {
+        if width < AppLayoutMetrics.sidebarCollapseWidth {
+            guard sidebarIsVisible else { return }
+            automaticallyCollapsedSidebar = true
+            columnVisibility = .detailOnly
+        } else if width >= AppLayoutMetrics.sidebarRestoreWidth,
+                  automaticallyCollapsedSidebar {
+            automaticallyCollapsedSidebar = false
+            columnVisibility = .all
+        }
     }
 
     private func toggleWorkspaceColumn(_ column: WorkspaceColumn) {
@@ -448,14 +530,16 @@ struct ContentView: View {
             Text(song.title.isEmpty ? "Untitled" : song.title)
                 .font(.title2.weight(.semibold))
                 .lineLimit(1)
+                .truncationMode(.tail)
             Text("|")
                 .foregroundStyle(.tertiary)
+                .fixedSize()
             Text(song.artist.isEmpty ? "Unknown Singer" : song.artist)
                 .font(.title2)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .truncationMode(.tail)
         }
-        .fixedSize(horizontal: true, vertical: false)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(song.title.isEmpty ? "Untitled" : song.title) | \(song.artist.isEmpty ? "Unknown Singer" : song.artist)")
         .accessibilityIdentifier("songMetadataHeader")
@@ -488,6 +572,7 @@ struct ContentView: View {
                 .accessibilityIdentifier("emptyImportSongBundleButton")
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("songEntryView")
     }
 
@@ -633,6 +718,42 @@ struct ContentView: View {
             .joined(separator: "-")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return safe.isEmpty ? fallback : safe
+    }
+}
+
+private struct ToolbarSearchField: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let searchField = NSSearchField()
+        searchField.placeholderString = "Search songs"
+        searchField.sendsSearchStringImmediately = true
+        searchField.sendsWholeSearchString = false
+        searchField.delegate = context.coordinator
+        return searchField
+    }
+
+    func updateNSView(_ searchField: NSSearchField, context: Context) {
+        guard searchField.stringValue != text else { return }
+        searchField.stringValue = text
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        @Binding private var text: String
+
+        init(text: Binding<String>) {
+            _text = text
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let searchField = notification.object as? NSSearchField else { return }
+            text = searchField.stringValue
+        }
     }
 }
 

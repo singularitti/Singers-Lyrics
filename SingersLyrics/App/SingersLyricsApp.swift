@@ -123,7 +123,10 @@ private final class SingersLyricsApplicationDelegate: NSObject, NSApplicationDel
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         window.toolbarStyle = .unified
-        window.minSize = NSSize(width: 1_180, height: 560)
+        window.minSize = NSSize(
+            width: AppLayoutMetrics.minimumWindowWidth,
+            height: AppLayoutMetrics.minimumWindowHeight
+        )
         window.contentViewController = hostingController
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
