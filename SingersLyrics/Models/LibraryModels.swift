@@ -286,17 +286,34 @@ enum SongSortMode: String, CaseIterable, Codable, Sendable {
     case artist
     case title
     case album
+    case dateAdded
+    case dateModified
 
     var title: String {
         switch self {
         case .artist: "Singer"
         case .title: "Title"
         case .album: "Album"
+        case .dateAdded: "Date Added"
+        case .dateModified: "Date Modified"
         }
     }
 
     func sorted(_ songs: [Song]) -> [Song] {
         songs.sorted { lhs, rhs in
+            switch self {
+            case .dateAdded:
+                if lhs.createdAt != rhs.createdAt {
+                    return lhs.createdAt > rhs.createdAt
+                }
+            case .dateModified:
+                if lhs.updatedAt != rhs.updatedAt {
+                    return lhs.updatedAt > rhs.updatedAt
+                }
+            case .artist, .title, .album:
+                break
+            }
+
             let lhsKeys: [String]
             let rhsKeys: [String]
             switch self {
@@ -309,6 +326,9 @@ enum SongSortMode: String, CaseIterable, Codable, Sendable {
             case .album:
                 lhsKeys = [lhs.album, lhs.title, lhs.artist]
                 rhsKeys = [rhs.album, rhs.title, rhs.artist]
+            case .dateAdded, .dateModified:
+                lhsKeys = [lhs.title, lhs.artist, lhs.album]
+                rhsKeys = [rhs.title, rhs.artist, rhs.album]
             }
 
             for (lhsKey, rhsKey) in zip(lhsKeys, rhsKeys) {

@@ -306,62 +306,79 @@ struct ContentView: View {
             get: { model.selectedSongIDs },
             set: { model.selectSongs($0) }
         )) {
-            Section(isExpanded: sidebarSectionBinding(.songs)) {
+            SidebarMenuSectionHeader(
+                title: "Songs",
+                systemImage: "music.note.list",
+                isExpanded: sidebarSectionBinding(.songs),
+                headerIdentifier: "songsSectionHeader",
+                menuLabel: "Songs Options",
+                menuIdentifier: "songsSectionMenuButton"
+            ) {
+                Menu("Sort Songs By") {
+                    songSortCommands
+                }
+            }
+            .sidebarSectionHeaderRow()
+
+            if expandedSidebarSections.contains(.songs) {
                 if songsSectionSongs.isEmpty {
                     sidebarEmptyRow("No Songs", identifier: "emptySongsItem")
                 } else {
-                    ForEach(Array(songsSectionSongs.enumerated()), id: \.element.id) { index, song in
-                        sidebarSongRow(song, index: index, section: .songs)
-                    }
-                }
-            } header: {
-                SidebarMenuSectionHeader(
-                    title: "Songs",
-                    headerIdentifier: "songsSectionHeader",
-                    menuLabel: "Songs Options",
-                    menuIdentifier: "songsSectionMenuButton"
-                ) {
-                    Menu("Sort Songs By") {
-                        songSortCommands
+                    ForEach(sidebarSongItems(songsSectionSongs, section: .songs)) { item in
+                        sidebarSongRow(item.song, index: item.index, section: item.section)
                     }
                 }
             }
 
-            Section(isExpanded: sidebarSectionBinding(.recent)) {
+            SidebarMenuSectionHeader(
+                title: "Recent",
+                systemImage: "clock",
+                isExpanded: sidebarSectionBinding(.recent),
+                headerIdentifier: "recentSectionHeader",
+                menuLabel: "Recent Options",
+                menuIdentifier: "recentSectionMenuButton"
+            ) {
+                recentScopeCommands
+            }
+            .sidebarSectionHeaderRow()
+
+            if expandedSidebarSections.contains(.recent) {
                 if recentSongs.isEmpty {
                     sidebarEmptyRow("No Recent Songs", identifier: "emptyRecentSongsItem")
                 } else {
-                    ForEach(Array(recentSongs.enumerated()), id: \.element.id) { index, song in
-                        sidebarSongRow(song, index: index, section: .recent)
+                    ForEach(sidebarSongItems(recentSongs, section: .recent)) { item in
+                        sidebarSongRow(item.song, index: item.index, section: item.section)
                     }
-                }
-            } header: {
-                SidebarMenuSectionHeader(
-                    title: "Recent",
-                    headerIdentifier: "recentSectionHeader",
-                    menuLabel: "Recent Options",
-                    menuIdentifier: "recentSectionMenuButton"
-                ) {
-                    recentScopeCommands
                 }
             }
 
-            Section(isExpanded: sidebarSectionBinding(.favorite)) {
+            SidebarSectionHeader(
+                title: "Favorite",
+                systemImage: "heart",
+                isExpanded: sidebarSectionBinding(.favorite),
+                accessibilityIdentifier: "favoriteSectionHeader"
+            )
+            .sidebarSectionHeaderRow()
+
+            if expandedSidebarSections.contains(.favorite) {
                 if favoriteSongs.isEmpty {
                     sidebarEmptyRow("No Favorite Songs", identifier: "emptyFavoriteSongsItem")
                 } else {
-                    ForEach(Array(favoriteSongs.enumerated()), id: \.element.id) { index, song in
-                        sidebarSongRow(song, index: index, section: .favorite)
+                    ForEach(sidebarSongItems(favoriteSongs, section: .favorite)) { item in
+                        sidebarSongRow(item.song, index: item.index, section: item.section)
                     }
                 }
-            } header: {
-                SidebarSectionHeader(
-                    title: "Favorite",
-                    accessibilityIdentifier: "favoriteSectionHeader"
-                )
             }
 
-            Section(isExpanded: sidebarSectionBinding(.tags)) {
+            SidebarSectionHeader(
+                title: "Tags",
+                systemImage: "tag",
+                isExpanded: sidebarSectionBinding(.tags),
+                accessibilityIdentifier: "tagsSectionHeader"
+            )
+            .sidebarSectionHeaderRow()
+
+            if expandedSidebarSections.contains(.tags) {
                 if tagSummaries.isEmpty {
                     sidebarEmptyRow("No Tags", identifier: "emptyTagsItem")
                 } else {
@@ -369,11 +386,6 @@ struct ContentView: View {
                         tagCategoryRow(summary, index: index)
                     }
                 }
-            } header: {
-                SidebarSectionHeader(
-                    title: "Tags",
-                    accessibilityIdentifier: "tagsSectionHeader"
-                )
             }
         }
         .contextMenu(forSelectionType: UUID.self) { songIDs in
@@ -420,13 +432,10 @@ struct ContentView: View {
         index: Int,
         section: SidebarSectionID
     ) -> some View {
-        let showsTags = section != .songs
         let accessibilityComponents = [
             song.title.isEmpty ? "Untitled" : song.title,
             songArtistAndAlbum(song),
-        ] + (showsTags
-            ? [song.tags.isEmpty ? "No Tags" : song.tags.joined(separator: ", ")]
-            : [])
+        ]
 
         return VStack(alignment: .leading, spacing: 3) {
             Text(song.title.isEmpty ? "Untitled" : song.title)
@@ -436,10 +445,6 @@ struct ContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-            if showsTags {
-                SongTagStrip(tags: song.tags)
-                    .frame(height: 20)
-            }
         }
         .padding(.vertical, 3)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -451,6 +456,15 @@ struct ContentView: View {
                 .joined(separator: ", ")
         )
         .accessibilityIdentifier(songRowIdentifier(section: section, index: index))
+    }
+
+    private func sidebarSongItems(
+        _ songs: [Song],
+        section: SidebarSectionID
+    ) -> [SidebarSongItem] {
+        songs.enumerated().map { index, song in
+            SidebarSongItem(section: section, index: index, song: song)
+        }
     }
 
     private func sidebarEmptyRow(_ title: String, identifier: String) -> some View {
@@ -1319,6 +1333,21 @@ private enum SidebarSectionID: String, Hashable {
     case tags
 }
 
+private struct SidebarSongItem: Identifiable {
+    struct ID: Hashable {
+        let section: SidebarSectionID
+        let songID: UUID
+    }
+
+    let section: SidebarSectionID
+    let index: Int
+    let song: Song
+
+    var id: ID {
+        ID(section: section, songID: song.id)
+    }
+}
+
 private enum RecentScope: String, CaseIterable, Identifiable {
     case today
     case yesterday
@@ -1489,49 +1518,40 @@ private struct RemovableTagChip: View {
     }
 }
 
-private struct SongTagStrip: View {
-    let tags: [String]
-
-    var body: some View {
-        if tags.isEmpty {
-            Text("No Tags")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            ScrollView(.horizontal) {
-                HStack(spacing: 4) {
-                    ForEach(tags, id: \.self) { tag in
-                        TagChip(name: tag)
-                    }
-                }
-            }
-            .scrollIndicators(.hidden)
-            .scrollClipDisabled()
-        }
-    }
-}
-
 private struct SidebarSectionHeader: View {
     let title: String
+    let systemImage: String
+    @Binding var isExpanded: Bool
     let accessibilityIdentifier: String
 
     var body: some View {
-        HStack(spacing: 5) {
-            Text(title)
-                .font(.caption.weight(.semibold))
+        HStack(spacing: 0) {
+            Button {
+                isExpanded.toggle()
+            } label: {
+                SidebarSectionToggleLabel(
+                    title: title,
+                    systemImage: systemImage,
+                    isExpanded: isExpanded
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(title)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier(accessibilityIdentifier)
+
             Spacer(minLength: 0)
         }
         .contentShape(Rectangle())
-        .accessibilityLabel(title)
-        .accessibilityIdentifier(accessibilityIdentifier)
         .textCase(nil)
     }
 }
 
 private struct SidebarMenuSectionHeader<MenuContent: View>: View {
     let title: String
+    let systemImage: String
+    @Binding var isExpanded: Bool
     let headerIdentifier: String
     let menuLabel: String
     let menuIdentifier: String
@@ -1542,10 +1562,20 @@ private struct SidebarMenuSectionHeader<MenuContent: View>: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .accessibilityLabel(title)
-                .accessibilityIdentifier(headerIdentifier)
+            Button {
+                isExpanded.toggle()
+            } label: {
+                SidebarSectionToggleLabel(
+                    title: title,
+                    systemImage: systemImage,
+                    isExpanded: isExpanded
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(title)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier(headerIdentifier)
 
             Spacer(minLength: 0)
 
@@ -1553,7 +1583,9 @@ private struct SidebarMenuSectionHeader<MenuContent: View>: View {
                 menuContent()
             } label: {
                 Image(systemName: "ellipsis")
-                    .frame(width: 18, height: 16)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 18)
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
@@ -1567,6 +1599,33 @@ private struct SidebarMenuSectionHeader<MenuContent: View>: View {
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .textCase(nil)
+    }
+}
+
+private extension View {
+    func sidebarSectionHeaderRow() -> some View {
+        listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 5, trailing: 8))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+    }
+}
+
+private struct SidebarSectionToggleLabel: View {
+    let title: String
+    let systemImage: String
+    let isExpanded: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .frame(width: 16)
+            Text(title)
+            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                .font(.caption.weight(.semibold))
+        }
+        .font(.body.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .contentShape(Rectangle())
     }
 }
 
