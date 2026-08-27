@@ -16,14 +16,96 @@ struct Song: Codable, Equatable, Identifiable, Sendable {
     var id: UUID
     var title: String
     var artist: String
+    var album: String
+    var tags: [String]
+    var isFavorite: Bool
+    var lastPlayedAt: Date?
     var appleMusicURL: URL?
-    var linkedTrackMetadata: TrackMetadata? = nil
+    var linkedTrackMetadata: TrackMetadata?
     var lines: [LyricLine]
     var createdAt: Date
     var updatedAt: Date
 
     var playbackMetadata: TrackMetadata {
-        linkedTrackMetadata ?? TrackMetadata(title: title, artist: artist)
+        linkedTrackMetadata ?? TrackMetadata(title: title, artist: artist, album: album)
+    }
+
+    init(
+        id: UUID,
+        title: String,
+        artist: String,
+        album: String = "",
+        tags: [String] = [],
+        isFavorite: Bool = false,
+        lastPlayedAt: Date? = nil,
+        appleMusicURL: URL?,
+        linkedTrackMetadata: TrackMetadata? = nil,
+        lines: [LyricLine],
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.title = title
+        self.artist = artist
+        self.album = album
+        self.tags = Self.normalizedTags(tags)
+        self.isFavorite = isFavorite
+        self.lastPlayedAt = lastPlayedAt
+        self.appleMusicURL = appleMusicURL
+        self.linkedTrackMetadata = linkedTrackMetadata
+        self.lines = lines
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case artist
+        case album
+        case tags
+        case isFavorite
+        case lastPlayedAt
+        case appleMusicURL
+        case linkedTrackMetadata
+        case lines
+        case createdAt
+        case updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(UUID.self, forKey: .id),
+            title: try container.decode(String.self, forKey: .title),
+            artist: try container.decode(String.self, forKey: .artist),
+            album: try container.decodeIfPresent(String.self, forKey: .album) ?? "",
+            tags: try container.decodeIfPresent([String].self, forKey: .tags) ?? [],
+            isFavorite: try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false,
+            lastPlayedAt: try container.decodeIfPresent(Date.self, forKey: .lastPlayedAt),
+            appleMusicURL: try container.decodeIfPresent(URL.self, forKey: .appleMusicURL),
+            linkedTrackMetadata: try container.decodeIfPresent(
+                TrackMetadata.self,
+                forKey: .linkedTrackMetadata
+            ),
+            lines: try container.decode([LyricLine].self, forKey: .lines),
+            createdAt: try container.decode(Date.self, forKey: .createdAt),
+            updatedAt: try container.decode(Date.self, forKey: .updatedAt)
+        )
+    }
+
+    static func normalizedTags(_ tags: [String]) -> [String] {
+        var seen: Set<String> = []
+        return tags.compactMap { tag in
+            let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let comparisonKey = trimmed.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            )
+            guard seen.insert(comparisonKey).inserted else { return nil }
+            return trimmed
+        }
     }
 
     static func blank(now: Date = Date()) -> Song {
@@ -31,6 +113,8 @@ struct Song: Codable, Equatable, Identifiable, Sendable {
             id: UUID(),
             title: "Untitled",
             artist: "",
+            album: "",
+            tags: [],
             appleMusicURL: nil,
             lines: [.blank()],
             createdAt: now,
@@ -199,34 +283,50 @@ struct RGBAColor: Codable, Equatable, Hashable, Sendable {
 }
 
 enum SongSortMode: String, CaseIterable, Codable, Sendable {
-    case manual
-    case title
     case artist
-    case added
-    case edited
+    case title
+    case album
 
     var title: String {
         switch self {
-        case .manual: "Manual Order"
-        case .title: "Title (A–Z)"
-        case .artist: "Singer (A–Z)"
-        case .added: "Recently Added"
-        case .edited: "Recently Edited"
+        case .artist: "Singer"
+        case .title: "Title"
+        case .album: "Album"
         }
     }
 
     func sorted(_ songs: [Song]) -> [Song] {
-        switch self {
-        case .manual:
-            songs
-        case .title:
-            songs.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        case .artist:
-            songs.sorted { $0.artist.localizedStandardCompare($1.artist) == .orderedAscending }
-        case .added:
-            songs.sorted { $0.createdAt > $1.createdAt }
-        case .edited:
-            songs.sorted { $0.updatedAt > $1.updatedAt }
+        songs.sorted { lhs, rhs in
+            let lhsKeys: [String]
+            let rhsKeys: [String]
+            switch self {
+            case .artist:
+                lhsKeys = [lhs.artist, lhs.title, lhs.album]
+                rhsKeys = [rhs.artist, rhs.title, rhs.album]
+            case .title:
+                lhsKeys = [lhs.title, lhs.artist, lhs.album]
+                rhsKeys = [rhs.title, rhs.artist, rhs.album]
+            case .album:
+                lhsKeys = [lhs.album, lhs.title, lhs.artist]
+                rhsKeys = [rhs.album, rhs.title, rhs.artist]
+            }
+
+            for (lhsKey, rhsKey) in zip(lhsKeys, rhsKeys) {
+                let lhsIsEmpty = lhsKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                let rhsIsEmpty = rhsKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if lhsIsEmpty != rhsIsEmpty {
+                    return !lhsIsEmpty
+                }
+                switch lhsKey.localizedStandardCompare(rhsKey) {
+                case .orderedAscending:
+                    return true
+                case .orderedDescending:
+                    return false
+                case .orderedSame:
+                    continue
+                }
+            }
+            return lhs.id.uuidString < rhs.id.uuidString
         }
     }
 }
@@ -250,6 +350,26 @@ struct MusicState: Equatable, Sendable {
 struct TrackMetadata: Codable, Equatable, Sendable {
     var title: String
     var artist: String
+    var album: String
+
+    init(title: String, artist: String, album: String = "") {
+        self.title = title
+        self.artist = artist
+        self.album = album
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case title
+        case artist
+        case album
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = try container.decode(String.self, forKey: .title)
+        artist = try container.decode(String.self, forKey: .artist)
+        album = try container.decodeIfPresent(String.self, forKey: .album) ?? ""
+    }
 }
 
 enum TimingUtilities {

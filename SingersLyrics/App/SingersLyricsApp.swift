@@ -21,7 +21,11 @@ struct SingersLyricsApp: App {
             }
         }
         let store: any LibraryStoring = isAutomatedTesting ? InMemoryLibraryStore() : JSONLibraryStore()
-        let music: any MusicControlling = isAutomatedTesting ? InertMusicController() : AppleMusicController()
+        let music: any MusicControlling = isAutomatedTesting
+            ? InertMusicController(
+                failsActions: arguments.contains("--ui-testing-failing-playback")
+            )
+            : AppleMusicController()
         let appModel = AppModel(store: store)
         let musicModel = MusicPlaybackModel(controller: music)
         let metadataLookup: any TrackMetadataLookingUp = isAutomatedTesting
@@ -53,7 +57,7 @@ struct SingersLyricsApp: App {
         }
         .defaultLaunchBehavior(isUnitTestHost ? .suppressed : .presented)
         .defaultSize(width: 1_380, height: 820)
-        .windowResizability(.contentMinSize)
+        .windowResizability(.automatic)
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
@@ -164,6 +168,7 @@ private struct MainAppView: View {
 
 private struct AppRootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(MusicPlaybackModel.self) private var playback
     @Environment(\.scenePhase) private var scenePhase
     let metadataLookup: any TrackMetadataLookingUp
 
@@ -177,6 +182,10 @@ private struct AppRootView: View {
                 guard phase != .active else { return }
                 Task { await model.flush() }
             }
+            .onChange(of: playback.playbackStartEvent) { _, event in
+                guard let event else { return }
+                model.recordPlayback(songID: event.songID, at: event.startedAt)
+            }
     }
 }
 
@@ -189,6 +198,10 @@ struct SingersLyricsCommands: Commands {
                 model.isCreatingSong = true
             }
             .keyboardShortcut("n", modifiers: .command)
+
+            Button("Import Song Bundle…") {
+                model.isImportingSongBundle = true
+            }
         }
 
         CommandGroup(after: .textEditing) {

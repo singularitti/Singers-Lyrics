@@ -214,19 +214,60 @@ actor AppleMusicController: MusicControlling {
 }
 
 actor InertMusicController: MusicControlling {
-    func currentState() async -> MusicState { MusicState() }
+    private let failsActions: Bool
+    private var state = MusicState()
+
+    init(failsActions: Bool = false) {
+        self.failsActions = failsActions
+    }
+
+    func currentState() async -> MusicState { state }
+
     func openTrack(_ url: URL, title: String, artist: String) async -> MusicActionResult {
-        MusicActionResult(succeeded: true, permissionDenied: false)
+        guard !failsActions else {
+            return MusicActionResult(succeeded: false, permissionDenied: false)
+        }
+        state = MusicState(
+            state: .playing,
+            position: 0,
+            duration: 180,
+            trackName: title,
+            trackArtist: artist,
+            trackPersistentID: url.absoluteString,
+            permissionDenied: false
+        )
+        return MusicActionResult(succeeded: true, permissionDenied: false)
     }
-    func playPause() async -> MusicState { MusicState() }
+
+    func playPause() async -> MusicState {
+        guard !failsActions else { return MusicState() }
+        state.state = state.state == .playing ? .paused : .playing
+        return state
+    }
+
     func seek(to seconds: Double) async -> MusicActionResult {
-        MusicActionResult(succeeded: true, permissionDenied: false)
+        guard !failsActions else {
+            return MusicActionResult(succeeded: false, permissionDenied: false)
+        }
+        state.position = seconds.isFinite ? max(0, seconds) : 0
+        return MusicActionResult(succeeded: true, permissionDenied: false)
     }
+
     func seekAndPlay(to seconds: Double) async -> MusicActionResult {
-        MusicActionResult(succeeded: true, permissionDenied: false)
+        guard !failsActions else {
+            return MusicActionResult(succeeded: false, permissionDenied: false)
+        }
+        state.position = seconds.isFinite ? max(0, seconds) : 0
+        state.state = .playing
+        return MusicActionResult(succeeded: true, permissionDenied: false)
     }
+
     func stop() async -> MusicActionResult {
-        MusicActionResult(succeeded: true, permissionDenied: false)
+        guard !failsActions else {
+            return MusicActionResult(succeeded: false, permissionDenied: false)
+        }
+        state.state = .stopped
+        return MusicActionResult(succeeded: true, permissionDenied: false)
     }
 }
 
@@ -332,6 +373,12 @@ private struct PlaybackTarget: Equatable {
     }
 }
 
+struct PlaybackStartEvent: Equatable, Sendable {
+    var id: UUID
+    var songID: UUID
+    var startedAt: Date
+}
+
 @MainActor
 @Observable
 final class MusicPlaybackModel {
@@ -358,6 +405,7 @@ final class MusicPlaybackModel {
     private(set) var state = MusicState()
     private(set) var lastActionFailed = false
     private(set) var issue: MusicPlaybackIssue?
+    private(set) var playbackStartEvent: PlaybackStartEvent?
 
     init(
         controller: any MusicControlling,
@@ -601,10 +649,14 @@ final class MusicPlaybackModel {
         if isAcceptedTargetState(state, target: nextTarget) {
             establishSession(with: state)
             if state.state == .playing || state.state == .paused {
+                let wasPaused = state.state == .paused
                 state = await controller.playPause()
                 sampledAt = Date()
                 previousAcceptedState = state
                 lastActionFailed = state.permissionDenied
+                if wasPaused, state.state == .playing, !state.permissionDenied {
+                    publishPlaybackStart(for: song.id)
+                }
                 return
             }
             let restartPosition = state.duration > 0 && state.position >= state.duration - 1
@@ -746,6 +798,9 @@ final class MusicPlaybackModel {
         sampledAt = Date()
         previousAcceptedState = state
         issue = nil
+        if let songID = target?.songID {
+            publishPlaybackStart(for: songID)
+        }
     }
 
     private func performSeekWithoutStartingPlayback(to seconds: Double) async {
@@ -767,6 +822,14 @@ final class MusicPlaybackModel {
         sessionPersistentID = sample.trackPersistentID
         sessionEstablished = true
         previousAcceptedState = sample
+    }
+
+    private func publishPlaybackStart(for songID: UUID, at date: Date = Date()) {
+        playbackStartEvent = PlaybackStartEvent(
+            id: UUID(),
+            songID: songID,
+            startedAt: date
+        )
     }
 
     private func isAcceptedTargetState(

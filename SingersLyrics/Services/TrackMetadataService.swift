@@ -8,11 +8,15 @@ struct UITestTrackMetadataService: TrackMetadataLookingUp {
     func lookup(url: URL) async throws -> TrackMetadata? {
         switch ITunesTrackMetadataService.trackID(from: url) {
         case "111":
-            TrackMetadata(title: "Alpha", artist: "First Singer")
+            TrackMetadata(title: "Alpha", artist: "First Singer", album: "First Album")
         case "222":
-            TrackMetadata(title: "Zulu", artist: "Second Singer")
+            TrackMetadata(title: "Zulu", artist: "Second Singer", album: "Second Album")
         default:
-            TrackMetadata(title: "Looked Up Song", artist: "Looked Up Singer")
+            TrackMetadata(
+                title: "Looked Up Song",
+                artist: "Looked Up Singer",
+                album: "Looked Up Album"
+            )
         }
     }
 }
@@ -91,6 +95,9 @@ struct ITunesTrackMetadataService: TrackMetadataLookingUp {
         guard let result else { return nil }
         let title = result.trackName ?? result.collectionName ?? ""
         let artist = result.artistName ?? ""
-        return title.isEmpty && artist.isEmpty ? nil : TrackMetadata(title: title, artist: artist)
+        let album = result.collectionName ?? ""
+        return title.isEmpty && artist.isEmpty && album.isEmpty
+            ? nil
+            : TrackMetadata(title: title, artist: artist, album: album)
     }
 }

@@ -30,6 +30,7 @@ final class AppModel {
     var selectedSongID: UUID?
     var selectedSongIDs: Set<UUID> = []
     var isCreatingSong = false
+    var isImportingSongBundle = false
     private(set) var isLoaded = false
     private(set) var autosaveDisabled = false
     var storageIssue: StorageIssue?
@@ -61,13 +62,33 @@ final class AppModel {
     }
 
     func backfillLinkedTrackMetadata(using lookup: any TrackMetadataLookingUp) async {
+        var changed = false
+        for index in library.songs.indices where
+            library.songs[index].album.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            guard let album = library.songs[index].linkedTrackMetadata?.album,
+                  !album.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            library.songs[index].album = album
+            changed = true
+        }
+
         let candidates = library.songs.compactMap { song -> LinkedTrackCandidate? in
-            guard song.linkedTrackMetadata == nil, let url = song.appleMusicURL else {
+            let linkedAlbum = song.linkedTrackMetadata?.album
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard (song.linkedTrackMetadata == nil || linkedAlbum.isEmpty),
+                  let url = song.appleMusicURL else {
                 return nil
             }
             return LinkedTrackCandidate(songID: song.id, url: url)
         }
-        guard !candidates.isEmpty else { return }
+        guard !candidates.isEmpty else {
+            if changed {
+                markChanged()
+            }
+            return
+        }
 
         let resolve: @Sendable (LinkedTrackCandidate) async -> LinkedTrackLookupResult = {
             candidate in
@@ -105,19 +126,25 @@ final class AppModel {
             return results
         }
 
-        var changed = false
         for result in results {
             guard let metadata = result.metadata,
                   !metadata.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   let index = library.songs.firstIndex(where: {
                       $0.id == result.candidate.songID
                   }),
-                  library.songs[index].appleMusicURL == result.candidate.url,
-                  library.songs[index].linkedTrackMetadata == nil else {
+                  library.songs[index].appleMusicURL == result.candidate.url else {
                 continue
             }
-            library.songs[index].linkedTrackMetadata = metadata
-            changed = true
+            if library.songs[index].linkedTrackMetadata != metadata {
+                library.songs[index].linkedTrackMetadata = metadata
+                changed = true
+            }
+            if library.songs[index].album
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !metadata.album.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                library.songs[index].album = metadata.album
+                changed = true
+            }
         }
 
         if changed {
@@ -170,6 +197,7 @@ final class AppModel {
         var song = Song.blank()
         song.title = metadata.title
         song.artist = metadata.artist
+        song.album = metadata.album
         song.appleMusicURL = appleMusicURL
         song.linkedTrackMetadata = metadata
         library.songs.insert(song, at: 0)
@@ -186,6 +214,9 @@ final class AppModel {
         guard var song = song(withID: songID) else { return }
         song.appleMusicURL = appleMusicURL
         song.linkedTrackMetadata = metadata
+        if song.album.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            song.album = metadata.album
+        }
         replaceSong(song)
     }
 
@@ -193,25 +224,42 @@ final class AppModel {
         guard let index = library.songs.firstIndex(where: { $0.id == song.id }) else { return }
         let existing = library.songs[index]
         var updated = song
+        updated.tags = Song.normalizedTags(updated.tags)
 
         if updated.appleMusicURL == existing.appleMusicURL,
            updated.linkedTrackMetadata == nil {
             if let linkedTrackMetadata = existing.linkedTrackMetadata {
                 updated.linkedTrackMetadata = linkedTrackMetadata
             } else if existing.appleMusicURL != nil,
-                      updated.title != existing.title || updated.artist != existing.artist {
+                      updated.title != existing.title
+                        || updated.artist != existing.artist
+                        || updated.album != existing.album {
                 // Version-1 libraries originally used the display metadata for
                 // Music matching. Preserve those pre-edit values the first time
-                // a legacy song's visible title or singer is customized.
+                // a legacy song's visible title, singer, or album is customized.
                 updated.linkedTrackMetadata = TrackMetadata(
                     title: existing.title,
-                    artist: existing.artist
+                    artist: existing.artist,
+                    album: existing.album
                 )
             }
         }
 
         updated.updatedAt = Date()
         library.songs[index] = updated
+        markChanged()
+    }
+
+    func toggleFavorite(songID: UUID) {
+        guard let index = library.songs.firstIndex(where: { $0.id == songID }) else { return }
+        library.songs[index].isFavorite.toggle()
+        library.songs[index].updatedAt = Date()
+        markChanged()
+    }
+
+    func recordPlayback(songID: UUID, at date: Date) {
+        guard let index = library.songs.firstIndex(where: { $0.id == songID }) else { return }
+        library.songs[index].lastPlayedAt = date
         markChanged()
     }
 
@@ -233,6 +281,7 @@ final class AppModel {
             }
             duplicate.createdAt = now
             duplicate.updatedAt = now
+            duplicate.lastPlayedAt = nil
             duplicateIDs.insert(duplicate.id)
             return [song, duplicate]
         }
@@ -252,6 +301,7 @@ final class AppModel {
 
         for sourceSong in songs {
             var song = sourceSong
+            song.tags = Song.normalizedTags(song.tags)
             let songIdentityConflicts = occupiedSongIDs.contains(song.id)
             if songIdentityConflicts {
                 song.id = UUID()
