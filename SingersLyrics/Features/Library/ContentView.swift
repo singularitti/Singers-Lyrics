@@ -392,6 +392,7 @@ struct ContentView: View {
             songContextMenu(for: songIDs)
         }
         .listStyle(.sidebar)
+        .contentMargins(.horizontal, 0, for: .scrollContent)
         .scrollIndicators(.visible, axes: .vertical)
         .accessibilityIdentifier("songList")
         .navigationTitle("Singers Lyrics")
@@ -448,6 +449,7 @@ struct ContentView: View {
         }
         .padding(.vertical, 3)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sidebarSectionItemRow()
         .tag(song.id)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
@@ -470,6 +472,7 @@ struct ContentView: View {
     private func sidebarEmptyRow(_ title: String, identifier: String) -> some View {
         Text(title)
             .foregroundStyle(.tertiary)
+            .sidebarSectionItemRow()
             .accessibilityIdentifier(identifier)
     }
 
@@ -486,7 +489,7 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(.vertical, 3)
-            .padding(.horizontal, 5)
+            .padding(.trailing, 5)
             .background(
                 isSelected ? Color.accentColor.opacity(0.18) : .clear,
                 in: RoundedRectangle(cornerRadius: 7)
@@ -494,6 +497,7 @@ struct ContentView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .sidebarSectionItemRow()
         .accessibilityLabel("\(summary.name), \(summary.songCount) songs")
         .accessibilityValue(isSelected ? "Selected" : "Not Selected")
         .accessibilityIdentifier("tagItem-\(index)")
@@ -1602,11 +1606,28 @@ private struct SidebarMenuSectionHeader<MenuContent: View>: View {
     }
 }
 
+private enum SidebarLayoutMetrics {
+    static let iconWidth: CGFloat = 16
+    static let labelSpacing: CGFloat = 6
+    static let itemIndent = iconWidth + labelSpacing
+}
+
 private extension View {
     func sidebarSectionHeaderRow() -> some View {
-        listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 5, trailing: 8))
+        frame(maxWidth: .infinity, alignment: .leading)
+            .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 5, trailing: 8))
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
+    }
+
+    func sidebarSectionItemRow() -> some View {
+        frame(maxWidth: .infinity, alignment: .leading)
+            .listRowInsets(EdgeInsets(
+                top: 0,
+                leading: SidebarLayoutMetrics.itemIndent,
+                bottom: 0,
+                trailing: 8
+            ))
     }
 }
 
@@ -1616,14 +1637,14 @@ private struct SidebarSectionToggleLabel: View {
     let isExpanded: Bool
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: SidebarLayoutMetrics.labelSpacing) {
             Image(systemName: systemImage)
-                .frame(width: 16)
+                .frame(width: SidebarLayoutMetrics.iconWidth)
             Text(title)
             Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                .font(.caption.weight(.semibold))
+                .font(.caption.weight(.regular))
         }
-        .font(.body.weight(.semibold))
+        .font(.body.weight(.regular))
         .foregroundStyle(.secondary)
         .contentShape(Rectangle())
     }
