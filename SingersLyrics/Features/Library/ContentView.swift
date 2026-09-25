@@ -13,18 +13,14 @@ enum AppLayoutMetrics {
     static let minimumPlayerColumnWidth: CGFloat = 500
     static let minimumWorkspaceWidth = minimumEditorColumnWidth + minimumPlayerColumnWidth + 1
     static let metadataHeaderHorizontalInset: CGFloat = 16
-    static let maximumMetadataHeaderWidth: CGFloat = 360
-    static let searchCollapseWidth: CGFloat = 1_180
-    static let sidebarCollapseWidth = idealSidebarWidth + minimumWorkspaceWidth
-    static let sidebarRestoreWidth = sidebarCollapseWidth
-
-    static func metadataHeaderWidth(forEditorWidth width: CGFloat) -> CGFloat {
-        guard width > 0 else { return 0 }
-        return min(
-            maximumMetadataHeaderWidth,
-            max(0, width - 2 * metadataHeaderHorizontalInset)
-        )
-    }
+    static let sidebarRestorationClearance: CGFloat = 48
+    static let toolbarControlWidth: CGFloat = 40
+    static let toolbarControlHeight: CGFloat = 36
+    static let toolbarGroupSpacing: CGFloat = 12
+    static let toolbarSearchWidth: CGFloat = 180
+    static let minimumToolbarSearchWidth: CGFloat = 100
+    static let toolbarActionsWithoutSearchWidth = 8 * toolbarControlWidth + 3 * toolbarGroupSpacing
+    static let maximumToolbarActionsWidth = toolbarActionsWithoutSearchWidth + toolbarSearchWidth
 }
 
 struct ContentView: View {
@@ -38,14 +34,14 @@ struct ContentView: View {
     @State private var pendingExport: PendingSongExport?
     @State private var songBundleImportError: String?
     @State private var exportError: String?
-    @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @State private var sidebarIsVisible = true
     @State private var manuallyCollapsedSidebar = false
-    @State private var isPreparingSidebarRestoration = false
     @State private var workspaceLayout = WorkspaceLayout.both
     @State private var windowWidth = CGFloat.infinity
-    @State private var lockedWindowWidth: CGFloat?
     @State private var showsCompactSearch = false
-    @State private var editorColumnWidth: CGFloat = AppLayoutMetrics.minimumEditorColumnWidth
+    @State private var sidebarWidth = AppLayoutMetrics.idealSidebarWidth
+    @State private var sidebarDragStartWidth: CGFloat?
+    @State private var toolbarLayout = ColumnToolbarLayout()
     @State private var expandedSidebarSections: Set<SidebarSectionID> = []
     @State private var selectedTagKeys: Set<String> = []
     @State private var recentScope = RecentScope.today
@@ -115,16 +111,12 @@ struct ContentView: View {
 
     var body: some View {
         splitView
-            .navigationSplitViewStyle(.balanced)
             .frame(
                 minWidth: AppLayoutMetrics.minimumWindowWidth,
                 minHeight: AppLayoutMetrics.minimumWindowHeight
             )
             .background(
-                WindowWidthReader(
-                    width: $windowWidth,
-                    lockedWidth: $lockedWindowWidth
-                )
+                WindowWidthReader(width: $windowWidth)
             )
             .onChange(of: windowWidth) { _, width in
                 updateResponsiveLayout(for: width)
@@ -242,26 +234,72 @@ struct ContentView: View {
     }
 
     private var splitView: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar
-                .navigationSplitViewColumnWidth(
-                    min: AppLayoutMetrics.minimumSidebarWidth,
-                    ideal: AppLayoutMetrics.idealSidebarWidth,
-                    max: AppLayoutMetrics.maximumSidebarWidth
-                )
-                .toolbar {
-                    sidebarToolbar
-                }
-        } detail: {
+        HStack(spacing: 0) {
+            if sidebarIsVisible {
+                sidebar
+                    .frame(width: sidebarWidth)
+                    .background(ColumnToolbarAnchor(layout: toolbarLayout, column: .sidebar))
+                    .background {
+                        Rectangle().fill(.bar).ignoresSafeArea()
+                    }
+                sidebarDivider
+            }
             workspace
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .toolbar {
-                    detailToolbar
-                }
-                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+                .background(ColumnToolbarAnchor(layout: toolbarLayout, column: .workspace))
         }
-        .toolbar(removing: .sidebarToggle)
-        .background(SidebarToggleToolbarItemRemover())
+        .background {
+            ColumnToolbarInstaller(
+                layout: toolbarLayout,
+                sidebarIsVisible: sidebarIsVisible,
+                showsSidebarToggle: showsSidebarToggle,
+                showsEditor: workspaceLayout.showsEditor,
+                showsPlayer: workspaceLayout != .editorOnly,
+                title: selectedSong?.title,
+                artist: selectedSong?.artist,
+                actions: AnyView(toolbarActions),
+                onToggleSidebar: {
+                    manuallyCollapsedSidebar = sidebarIsVisible
+                    sidebarIsVisible.toggle()
+                }
+            )
+        }
+    }
+
+    private var sidebarDivider: some View {
+        Divider()
+            .overlay {
+                Color.clear
+                    .frame(width: 9)
+                    .contentShape(Rectangle())
+                    .onHover { hovering in
+                        if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                    }
+                    .gesture(DragGesture(coordinateSpace: .global).onChanged { value in
+                        if sidebarDragStartWidth == nil { sidebarDragStartWidth = sidebarWidth }
+                        resizeSidebar(to: (sidebarDragStartWidth ?? sidebarWidth) + value.translation.width)
+                    }.onEnded { _ in
+                        sidebarDragStartWidth = nil
+                    })
+            }
+            .accessibilityLabel("Sidebar width")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: resizeSidebar(to: sidebarWidth + 10)
+                case .decrement: resizeSidebar(to: sidebarWidth - 10)
+                @unknown default: break
+                }
+            }
+    }
+
+    private func resizeSidebar(to width: CGFloat) {
+        sidebarWidth = min(
+            AppLayoutMetrics.maximumSidebarWidth,
+            max(
+                AppLayoutMetrics.minimumSidebarWidth,
+                min(width, windowWidth - AppLayoutMetrics.minimumWorkspaceWidth - 1)
+            )
+        )
     }
 
     @ViewBuilder
@@ -395,7 +433,6 @@ struct ContentView: View {
         .contentMargins(.horizontal, 0, for: .scrollContent)
         .scrollIndicators(.visible, axes: .vertical)
         .accessibilityIdentifier("songList")
-        .navigationTitle("Singers Lyrics")
     }
 
     @ViewBuilder
@@ -559,11 +596,7 @@ struct ContentView: View {
             .id(song.wrappedValue.id)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.background)
-            .onGeometryChange(for: CGFloat.self, of: { proxy in
-                proxy.size.width
-            }) { width in
-                editorColumnWidth = width
-            }
+            .background(ColumnToolbarAnchor(layout: toolbarLayout, column: .editor))
     }
 
     private func playerColumn(song: Song) -> some View {
@@ -571,98 +604,42 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))
             .backgroundExtensionEffect()
+            .background(ColumnToolbarAnchor(layout: toolbarLayout, column: .player))
     }
 
-    @ToolbarContentBuilder
-    private var sidebarToolbar: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            if sidebarIsVisible {
-                sidebarToolbarControls
-            }
-        }
-        .sharedBackgroundVisibility(.hidden)
-    }
-
-    private var sidebarToolbarControls: some View {
-        sidebarToggleButton
-        .labelStyle(.iconOnly)
-        .fixedSize()
-        .accessibilityIdentifier("sidebarToolbarControls")
-    }
-
-    private var sidebarToggleButton: some View {
-        Button {
-            if sidebarIsVisible {
-                manuallyCollapsedSidebar = true
-                columnVisibility = .detailOnly
-            } else if windowWidth >= AppLayoutMetrics.sidebarRestoreWidth {
-                manuallyCollapsedSidebar = false
-                restoreSidebarPreservingWindowFrame()
-            }
-        } label: {
-            Label(
-                sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar",
-                systemImage: "sidebar.leading"
+    private var toolbarActions: some View {
+        GeometryReader { geometry in
+            let searchWidth = min(
+                AppLayoutMetrics.toolbarSearchWidth,
+                geometry.size.width - AppLayoutMetrics.toolbarActionsWithoutSearchWidth
             )
-        }
-        .buttonStyle(.borderless)
-        .help(sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar")
-        .accessibilityLabel(sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar")
-        .accessibilityIdentifier("sidebarToggleButton")
-    }
+            let usesCompactSearch = searchWidth < AppLayoutMetrics.minimumToolbarSearchWidth
 
-    @ToolbarContentBuilder
-    private var detailToolbar: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            if !sidebarIsVisible,
-               manuallyCollapsedSidebar,
-               windowWidth >= AppLayoutMetrics.sidebarRestoreWidth {
-                sidebarToggleButton
+            HStack(spacing: AppLayoutMetrics.toolbarGroupSpacing) {
+                workspaceToolbarButtons
+                lyricsFileToolbarButtons
+                songToolbarButtons
+
+                if usesCompactSearch {
+                    compactSearchButton
+                        .buttonStyle(.borderless)
+                        .frame(
+                            width: AppLayoutMetrics.toolbarControlHeight,
+                            height: AppLayoutMetrics.toolbarControlHeight
+                        )
+                        .glassEffect(.regular, in: .capsule)
+                } else {
+                    ToolbarSearchField(text: $searchText)
+                        .frame(width: searchWidth, height: 24)
+                        .frame(height: AppLayoutMetrics.toolbarControlHeight)
+                        .glassEffect(.regular, in: .capsule)
+                        .accessibilityIdentifier("songSearchField")
+                }
             }
-        }
-        .sharedBackgroundVisibility(.hidden)
-
-        if let song = selectedSong, workspaceLayout.showsEditor {
-            ToolbarItem(placement: .navigation) {
-                songMetadataHeader(for: song)
-                    .padding(.leading, 4)
-                    .frame(width: metadataHeaderWidth, alignment: .leading)
-                    .clipped()
-            }
-            .sharedBackgroundVisibility(.hidden)
-        }
-
-        ToolbarSpacer(.flexible, placement: .primaryAction)
-
-        ToolbarItemGroup(placement: .primaryAction) {
-            workspaceToolbarButtons
-        } label: {
-            Text("Workspace")
-        }
-
-        ToolbarSpacer(.fixed, placement: .primaryAction)
-
-        ToolbarItemGroup(placement: .primaryAction) {
-            lyricsFileToolbarButtons
-        } label: {
-            Text("Lyrics")
-        }
-
-        ToolbarSpacer(.fixed, placement: .primaryAction)
-
-        ToolbarItemGroup(placement: .primaryAction) {
-            songToolbarButtons
-        } label: {
-            Text("Song")
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            if usesCompactSearch {
-                compactSearchButton
-            } else {
-                ToolbarSearchField(text: $searchText)
-                    .frame(width: 180, height: 24)
-                    .accessibilityIdentifier("songSearchField")
+            .fixedSize()
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .trailing)
+            .onChange(of: usesCompactSearch) { _, compact in
+                if !compact { showsCompactSearch = false }
             }
         }
     }
@@ -690,7 +667,13 @@ struct ContentView: View {
             .accessibilityValue(workspaceLayout.accessibilityValue)
         }
         .controlGroupStyle(.navigation)
+        .labelStyle(.iconOnly)
+        .frame(
+            width: 2 * AppLayoutMetrics.toolbarControlWidth,
+            height: AppLayoutMetrics.toolbarControlHeight
+        )
         .fixedSize()
+        .glassEffect(.regular, in: .capsule)
     }
 
     private var lyricsFileToolbarButtons: some View {
@@ -716,7 +699,13 @@ struct ContentView: View {
             .disabled(model.selectedSongIDs.isEmpty)
         }
         .controlGroupStyle(.navigation)
+        .labelStyle(.iconOnly)
+        .frame(
+            width: 2 * AppLayoutMetrics.toolbarControlWidth,
+            height: AppLayoutMetrics.toolbarControlHeight
+        )
         .fixedSize()
+        .glassEffect(.regular, in: .capsule)
     }
 
     private var songToolbarButtons: some View {
@@ -770,7 +759,13 @@ struct ContentView: View {
             .disabled(model.selectedSongIDs.isEmpty)
         }
         .controlGroupStyle(.navigation)
+        .labelStyle(.iconOnly)
+        .frame(
+            width: 4 * AppLayoutMetrics.toolbarControlWidth,
+            height: AppLayoutMetrics.toolbarControlHeight
+        )
         .fixedSize()
+        .glassEffect(.regular, in: .capsule)
     }
 
     private var selectedSong: Song? {
@@ -778,16 +773,17 @@ struct ContentView: View {
         return model.song(withID: selectedSongID)
     }
 
-    private var metadataHeaderWidth: CGFloat {
-        AppLayoutMetrics.metadataHeaderWidth(forEditorWidth: editorColumnWidth)
+    private var showsSidebarToggle: Bool {
+        sidebarIsVisible || (manuallyCollapsedSidebar && windowWidth >= sidebarRestoreWidth)
     }
 
-    private var usesCompactSearch: Bool {
-        windowWidth < AppLayoutMetrics.searchCollapseWidth
+    private var sidebarCollapseWidth: CGFloat {
+        max(sidebarWidth, AppLayoutMetrics.idealSidebarWidth)
+            + AppLayoutMetrics.minimumWorkspaceWidth + 1
     }
 
-    private var sidebarIsVisible: Bool {
-        columnVisibility != .detailOnly
+    private var sidebarRestoreWidth: CGFloat {
+        sidebarCollapseWidth + AppLayoutMetrics.sidebarRestorationClearance
     }
 
     private var compactSearchButton: some View {
@@ -810,47 +806,14 @@ struct ContentView: View {
     }
 
     private func updateResponsiveLayout(for width: CGFloat) {
-        if width >= AppLayoutMetrics.searchCollapseWidth {
-            showsCompactSearch = false
-        }
-
-        if width < AppLayoutMetrics.sidebarCollapseWidth {
-            isPreparingSidebarRestoration = false
-            lockedWindowWidth = nil
-            columnVisibility = .detailOnly
-        } else if !manuallyCollapsedSidebar,
-                  !sidebarIsVisible,
-                  !isPreparingSidebarRestoration {
-            restoreSidebarPreservingWindowFrame()
-        }
-    }
-
-    private func restoreSidebarPreservingWindowFrame() {
-        guard !isPreparingSidebarRestoration else { return }
-        isPreparingSidebarRestoration = true
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(150))
-            guard isPreparingSidebarRestoration,
-                  windowWidth >= AppLayoutMetrics.sidebarRestoreWidth,
-                  !manuallyCollapsedSidebar else {
-                isPreparingSidebarRestoration = false
-                return
+        withTransaction(Transaction(animation: nil)) {
+            if width < sidebarCollapseWidth {
+                sidebarIsVisible = false
+                sidebarDragStartWidth = nil
+            } else if !manuallyCollapsedSidebar,
+                      width >= sidebarRestoreWidth {
+                sidebarIsVisible = true
             }
-            lockedWindowWidth = windowWidth
-            try? await Task.sleep(for: .milliseconds(10))
-            guard isPreparingSidebarRestoration,
-                  windowWidth >= AppLayoutMetrics.sidebarRestoreWidth,
-                  !manuallyCollapsedSidebar else {
-                lockedWindowWidth = nil
-                isPreparingSidebarRestoration = false
-                return
-            }
-            columnVisibility = .all
-            try? await Task.sleep(for: .milliseconds(50))
-            guard isPreparingSidebarRestoration else { return }
-            isPreparingSidebarRestoration = false
-            await Task.yield()
-            lockedWindowWidth = nil
         }
     }
 
@@ -868,25 +831,6 @@ struct ContentView: View {
             return "Show Editor and Player Columns"
         }
         return column == .editor ? "Show Only Editor Column" : "Show Only Player Column"
-    }
-
-    private func songMetadataHeader(for song: Song) -> some View {
-        let title = song.title.isEmpty ? "Untitled" : song.title
-        let artist = song.artist.isEmpty ? "Unknown Singer" : song.artist
-        let titleText = Text(title).font(.title2.weight(.semibold))
-        let separatorText = Text(" | ")
-            .font(.title2)
-            .foregroundColor(Color(nsColor: .tertiaryLabelColor))
-        let artistText = Text(artist)
-            .font(.title2)
-            .foregroundColor(Color(nsColor: .secondaryLabelColor))
-
-        return Text("\(titleText)\(separatorText)\(artistText)")
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(title) | \(artist)")
-            .accessibilityIdentifier("songMetadataHeader")
     }
 
     @ViewBuilder
@@ -1047,18 +991,15 @@ struct ContentView: View {
 
 private struct WindowWidthReader: NSViewRepresentable {
     @Binding var width: CGFloat
-    @Binding var lockedWidth: CGFloat?
 
     func makeNSView(context: Context) -> ObserverView {
         let view = ObserverView()
         view.onWidthChange = { width = $0 }
-        view.lockedWidth = lockedWidth
         return view
     }
 
     func updateNSView(_ view: ObserverView, context: Context) {
         view.onWidthChange = { width = $0 }
-        view.lockedWidth = lockedWidth
         view.reportWidth()
     }
 
@@ -1069,22 +1010,9 @@ private struct WindowWidthReader: NSViewRepresentable {
     @MainActor
     final class ObserverView: NSView {
         var onWidthChange: ((CGFloat) -> Void)?
-        var lockedWidth: CGFloat? {
-            didSet {
-                guard let lockedWidth else {
-                    lockedFrame = nil
-                    return
-                }
-                guard lockedWidth != oldValue || lockedFrame == nil,
-                      let window = observedWindow ?? self.window else { return }
-                var frame = window.frame
-                frame.size.width = lockedWidth
-                lockedFrame = frame
-            }
-        }
         private weak var observedWindow: NSWindow?
         private var lastReportedWidth: CGFloat?
-        private var lockedFrame: NSRect?
+        private var reportIsScheduled = false
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -1112,7 +1040,6 @@ private struct WindowWidthReader: NSViewRepresentable {
             NotificationCenter.default.removeObserver(self)
             observedWindow = nil
             lastReportedWidth = nil
-            lockedFrame = nil
         }
 
         @objc
@@ -1132,111 +1059,16 @@ private struct WindowWidthReader: NSViewRepresentable {
             if window.minSize != minimumSize {
                 window.minSize = minimumSize
             }
-            // NavigationSplitView can enlarge its window while revealing a
-            // sidebar to preserve the detail width. Keep the user's frame
-            // stable until that transition has completed.
-            if let lockedFrame,
-               !NSEqualRects(window.frame, lockedFrame) {
-                window.setFrame(lockedFrame, display: true)
-            }
-            let nextWidth = window.frame.width
-            guard nextWidth > 0, nextWidth != lastReportedWidth else { return }
-            lastReportedWidth = nextWidth
+            guard !reportIsScheduled else { return }
+            reportIsScheduled = true
             DispatchQueue.main.async { [weak self, weak window] in
-                guard let self, let window, self.window === window else { return }
+                guard let self else { return }
+                self.reportIsScheduled = false
+                guard let window, self.window === window else { return }
+                let nextWidth = window.frame.width
+                guard nextWidth > 0, nextWidth != self.lastReportedWidth else { return }
+                self.lastReportedWidth = nextWidth
                 self.onWidthChange?(nextWidth)
-            }
-        }
-    }
-}
-
-private struct SidebarToggleToolbarItemRemover: NSViewRepresentable {
-    func makeNSView(context: Context) -> ObserverView {
-        ObserverView()
-    }
-
-    func updateNSView(_ view: ObserverView, context: Context) {
-        view.removeSidebarToggleItem()
-    }
-
-    static func dismantleNSView(_ view: ObserverView, coordinator: Void) {
-        view.stopObserving()
-    }
-
-    @MainActor
-    final class ObserverView: NSView {
-        // SwiftUI hides this item visually but can leave it in NSToolbar,
-        // where it still consumes an overflow slot at narrow widths.
-        private static let sidebarToggleIdentifier = NSToolbarItem.Identifier(
-            "com.apple.SwiftUI.navigationSplitView.toggleSidebar"
-        )
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            startObservingCurrentWindow()
-        }
-
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            nil
-        }
-
-        private func startObservingCurrentWindow() {
-            stopObserving()
-            guard let window else { return }
-
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(windowDidUpdate),
-                name: NSWindow.didUpdateNotification,
-                object: window
-            )
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(toolbarWillAddItem),
-                name: NSToolbar.willAddItemNotification,
-                object: nil
-            )
-            removeSidebarToggleItem()
-            scheduleSidebarToggleRemoval()
-        }
-
-        func stopObserving() {
-            NSObject.cancelPreviousPerformRequests(
-                withTarget: self,
-                selector: #selector(removeSidebarToggleItem),
-                object: nil
-            )
-            NotificationCenter.default.removeObserver(self)
-        }
-
-        @objc
-        private func windowDidUpdate(_ notification: Notification) {
-            removeSidebarToggleItem()
-        }
-
-        @objc
-        private func toolbarWillAddItem(_ notification: Notification) {
-            guard let toolbar = notification.object as? NSToolbar,
-                  toolbar === window?.toolbar else { return }
-            scheduleSidebarToggleRemoval()
-        }
-
-        private func scheduleSidebarToggleRemoval() {
-            NSObject.cancelPreviousPerformRequests(
-                withTarget: self,
-                selector: #selector(removeSidebarToggleItem),
-                object: nil
-            )
-            perform(#selector(removeSidebarToggleItem), with: nil, afterDelay: 0)
-        }
-
-        @objc
-        func removeSidebarToggleItem() {
-            guard let toolbar = window?.toolbar else { return }
-            while let index = toolbar.items.firstIndex(where: {
-                $0.itemIdentifier == Self.sidebarToggleIdentifier
-            }) {
-                toolbar.removeItem(at: index)
             }
         }
     }
