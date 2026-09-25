@@ -346,7 +346,6 @@ struct ContentView: View {
         )) {
             SidebarMenuSectionHeader(
                 title: "Songs",
-                systemImage: "music.note.list",
                 isExpanded: sidebarSectionBinding(.songs),
                 headerIdentifier: "songsSectionHeader",
                 menuLabel: "Songs Options",
@@ -370,7 +369,6 @@ struct ContentView: View {
 
             SidebarMenuSectionHeader(
                 title: "Recent",
-                systemImage: "clock",
                 isExpanded: sidebarSectionBinding(.recent),
                 headerIdentifier: "recentSectionHeader",
                 menuLabel: "Recent Options",
@@ -392,7 +390,6 @@ struct ContentView: View {
 
             SidebarSectionHeader(
                 title: "Favorite",
-                systemImage: "heart",
                 isExpanded: sidebarSectionBinding(.favorite),
                 accessibilityIdentifier: "favoriteSectionHeader"
             )
@@ -410,7 +407,6 @@ struct ContentView: View {
 
             SidebarSectionHeader(
                 title: "Tags",
-                systemImage: "tag",
                 isExpanded: sidebarSectionBinding(.tags),
                 accessibilityIdentifier: "tagsSectionHeader"
             )
@@ -1356,7 +1352,6 @@ private struct RemovableTagChip: View {
 
 private struct SidebarSectionHeader: View {
     let title: String
-    let systemImage: String
     @Binding var isExpanded: Bool
     let accessibilityIdentifier: String
 
@@ -1367,7 +1362,6 @@ private struct SidebarSectionHeader: View {
             } label: {
                 SidebarSectionToggleLabel(
                     title: title,
-                    systemImage: systemImage,
                     isExpanded: isExpanded
                 )
             }
@@ -1386,7 +1380,6 @@ private struct SidebarSectionHeader: View {
 
 private struct SidebarMenuSectionHeader<MenuContent: View>: View {
     let title: String
-    let systemImage: String
     @Binding var isExpanded: Bool
     let headerIdentifier: String
     let menuLabel: String
@@ -1403,7 +1396,6 @@ private struct SidebarMenuSectionHeader<MenuContent: View>: View {
             } label: {
                 SidebarSectionToggleLabel(
                     title: title,
-                    systemImage: systemImage,
                     isExpanded: isExpanded
                 )
             }
@@ -1439,9 +1431,8 @@ private struct SidebarMenuSectionHeader<MenuContent: View>: View {
 }
 
 private enum SidebarLayoutMetrics {
-    static let iconWidth: CGFloat = 16
     static let labelSpacing: CGFloat = 6
-    static let itemIndent = iconWidth + labelSpacing
+    static let itemIndent: CGFloat = 8
 }
 
 private extension View {
@@ -1465,13 +1456,10 @@ private extension View {
 
 private struct SidebarSectionToggleLabel: View {
     let title: String
-    let systemImage: String
     let isExpanded: Bool
 
     var body: some View {
         HStack(spacing: SidebarLayoutMetrics.labelSpacing) {
-            Image(systemName: systemImage)
-                .frame(width: SidebarLayoutMetrics.iconWidth)
             Text(title)
             Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                 .font(.caption.weight(.regular))
