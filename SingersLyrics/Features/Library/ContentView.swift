@@ -18,7 +18,7 @@ enum AppLayoutMetrics {
     static let toolbarControlHeight: CGFloat = 36
     static let toolbarGroupSpacing: CGFloat = 12
     static let toolbarSearchWidth: CGFloat = 180
-    static let minimumToolbarSearchWidth: CGFloat = 100
+    static let minimumToolbarSearchWidth: CGFloat = 160
     static let toolbarActionsWithoutSearchWidth = 8 * toolbarControlWidth + 3 * toolbarGroupSpacing
     static let maximumToolbarActionsWidth = toolbarActionsWithoutSearchWidth + toolbarSearchWidth
 }
@@ -623,7 +623,7 @@ struct ContentView: View {
                             width: AppLayoutMetrics.toolbarControlHeight,
                             height: AppLayoutMetrics.toolbarControlHeight
                         )
-                        .glassEffect(.regular, in: .capsule)
+                        .glassEffect(.regular, in: .circle)
                 } else {
                     ToolbarSearchField(text: $searchText)
                         .frame(width: searchWidth, height: 24)
