@@ -571,11 +571,7 @@ struct LyricsEditorView: View {
 
             Spacer(minLength: 10)
 
-            HStack(spacing: 10) {
-                stampTimingButton
-                delayPicker
-            }
-            .fixedSize(horizontal: true, vertical: true)
+            timingStampControls
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
@@ -587,17 +583,34 @@ struct LyricsEditorView: View {
         VStack(alignment: .leading, spacing: 8) {
             timingSelectionSummary
 
-            timingAdjustmentControls
-                .frame(maxWidth: .infinity, alignment: .center)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 0) {
+                    timingAdjustmentControls
 
-            HStack(spacing: 10) {
-                Spacer(minLength: 0)
-                stampTimingButton
-                delayPicker
+                    Spacer(minLength: 10)
+
+                    timingStampControls
+                }
+
+                VStack(alignment: .trailing, spacing: 8) {
+                    timingAdjustmentControls
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    timingStampControls
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("compactTimingControls")
+    }
+
+    private var timingStampControls: some View {
+        HStack(spacing: 10) {
+            stampTimingButton
+            delayPicker
+        }
+        .fixedSize(horizontal: true, vertical: true)
     }
 
     private var timingSelectionSummary: some View {
