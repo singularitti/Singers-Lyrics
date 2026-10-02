@@ -16,10 +16,13 @@ enum AppLayoutMetrics {
     static let sidebarRestorationClearance: CGFloat = 48
     static let toolbarControlWidth: CGFloat = 40
     static let toolbarControlHeight: CGFloat = 36
+    static let toolbarFileGroupWidth: CGFloat = 2 * 38
+    static let toolbarSongGroupWidth: CGFloat = 4 * 35
     static let toolbarGroupSpacing: CGFloat = 12
     static let toolbarSearchWidth: CGFloat = 180
     static let minimumToolbarSearchWidth: CGFloat = 160
-    static let toolbarActionsWithoutSearchWidth = 8 * toolbarControlWidth + 3 * toolbarGroupSpacing
+    static let toolbarActionsWithoutSearchWidth =
+        2 * toolbarControlWidth + toolbarFileGroupWidth + toolbarSongGroupWidth + 3 * toolbarGroupSpacing
     static let maximumToolbarActionsWidth = toolbarActionsWithoutSearchWidth + toolbarSearchWidth
 }
 
@@ -697,7 +700,7 @@ struct ContentView: View {
         .controlGroupStyle(.navigation)
         .labelStyle(.iconOnly)
         .frame(
-            width: 2 * AppLayoutMetrics.toolbarControlWidth,
+            width: AppLayoutMetrics.toolbarFileGroupWidth,
             height: AppLayoutMetrics.toolbarControlHeight
         )
         .fixedSize()
@@ -707,13 +710,16 @@ struct ContentView: View {
     private var songToolbarButtons: some View {
         ControlGroup {
             Button {
-                songForDetails = selectedSong
+                songForLink = selectedSong
             } label: {
-                Label("Details", systemImage: "info.circle")
+                Label(
+                    "Music Link",
+                    systemImage: selectedSong?.appleMusicURL == nil ? "link.badge.plus" : "link"
+                )
             }
-            .help("Edit Song Details")
-            .accessibilityLabel("Edit Song Details")
-            .accessibilityIdentifier("editSongDetailsButton")
+            .help("Apple Music Link")
+            .accessibilityIdentifier("appleMusicLinkButton")
+            .accessibilityValue(selectedSong?.appleMusicURL == nil ? "No link" : "Linked")
             .disabled(selectedSong == nil)
 
             Button {
@@ -732,16 +738,13 @@ struct ContentView: View {
             .disabled(selectedSong == nil)
 
             Button {
-                songForLink = selectedSong
+                songForDetails = selectedSong
             } label: {
-                Label(
-                    "Music Link",
-                    systemImage: selectedSong?.appleMusicURL == nil ? "link.badge.plus" : "link"
-                )
+                Label("Details", systemImage: "info.circle")
             }
-            .help("Apple Music Link")
-            .accessibilityIdentifier("appleMusicLinkButton")
-            .accessibilityValue(selectedSong?.appleMusicURL == nil ? "No link" : "Linked")
+            .help("Edit Song Details")
+            .accessibilityLabel("Edit Song Details")
+            .accessibilityIdentifier("editSongDetailsButton")
             .disabled(selectedSong == nil)
 
             Button(role: .destructive) {
@@ -757,7 +760,7 @@ struct ContentView: View {
         .controlGroupStyle(.navigation)
         .labelStyle(.iconOnly)
         .frame(
-            width: 4 * AppLayoutMetrics.toolbarControlWidth,
+            width: AppLayoutMetrics.toolbarSongGroupWidth,
             height: AppLayoutMetrics.toolbarControlHeight
         )
         .fixedSize()
