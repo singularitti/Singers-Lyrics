@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 /// Owns the titlebar layout without publishing toolbar geometry into SwiftUI.
@@ -14,6 +15,13 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
     private weak var window: NSWindow?
     private var previousToolbar: NSToolbar?
     private let itemIdentifier = NSToolbarItem.Identifier("columnControls")
+    private let titlebarBackground = CALayer()
+    private let titlebarBlur: CIFilter = {
+        let filter = CIFilter.gaussianBlur()
+        filter.radius = 6
+        return filter
+    }()
+    private var titlebarAppearance: NSAppearance?
     private lazy var toolbarView = ColumnToolbarView()
     private lazy var toolbar: NSToolbar = {
         let toolbar = NSToolbar(identifier: "SingersLyrics.columnToolbar")
@@ -60,6 +68,20 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
         window.toolbar = toolbar
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
+        if let contentView = window.contentView {
+            // Sample the lyrics in the same rendering layer, below the native
+            // toolbar. A system material adds an unwanted gray background here.
+            contentView.wantsLayer = true
+            contentView.layer?.addSublayer(titlebarBackground)
+            titlebarBackground.masksToBounds = true
+            // SwiftUI can add content layers after the toolbar is installed.
+            titlebarBackground.zPosition = 1
+            updateTitlebarAppearance()
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(updateTitlebarAppearance),
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil
+        )
         NotificationCenter.default.addObserver(
             self, selector: #selector(layoutToolbar), name: NSWindow.didResizeNotification, object: window
         )
@@ -74,6 +96,9 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
 
     func detach() {
         NotificationCenter.default.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        titlebarBackground.removeFromSuperlayer()
+        titlebarAppearance = nil
         if let window, window.toolbar === toolbar { window.toolbar = previousToolbar }
         window = nil
         previousToolbar = nil
@@ -85,6 +110,7 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
     }
 
     @objc func layoutToolbar() {
+        layoutTitlebarBackground()
         guard let window, toolbarView.window === window, toolbarView.bounds.width > 0 else { return }
         let toolbarFrame = toolbarView.convert(toolbarView.bounds, to: nil)
         let inset = AppLayoutMetrics.metadataHeaderHorizontalInset
@@ -126,6 +152,47 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
     private func frame(of view: NSView?) -> CGRect? {
         guard let view, view.window === window, !view.isHiddenOrHasHiddenAncestor, !view.bounds.isEmpty else { return nil }
         return view.convert(view.bounds, to: nil)
+    }
+
+    private func layoutTitlebarBackground() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard showsEditor, let editorFrame = frame(of: editor),
+              let window, let contentView = window.contentView else {
+            titlebarBackground.isHidden = true
+            return
+        }
+        if titlebarAppearance != contentView.effectiveAppearance {
+            updateTitlebarAppearance()
+        }
+        let contentFrame = contentView.convert(contentView.bounds, to: nil)
+        let titlebarFrame = CGRect(
+            x: editorFrame.minX,
+            y: window.contentLayoutRect.maxY,
+            width: editorFrame.width,
+            height: max(0, contentFrame.maxY - window.contentLayoutRect.maxY)
+        )
+        titlebarBackground.isHidden = false
+        let frame = contentView.convert(titlebarFrame, from: nil)
+        if titlebarBackground.frame != frame { titlebarBackground.frame = frame }
+        if titlebarBackground.contentsScale != window.backingScaleFactor {
+            titlebarBackground.contentsScale = window.backingScaleFactor
+        }
+    }
+
+    @objc private func updateTitlebarAppearance() {
+        guard let appearance = window?.contentView?.effectiveAppearance else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        titlebarAppearance = appearance
+        let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        titlebarBackground.backgroundFilters = reduceTransparency ? nil : [titlebarBlur]
+        appearance.performAsCurrentDrawingAppearance {
+            titlebarBackground.backgroundColor = NSColor.textBackgroundColor
+                .withAlphaComponent(reduceTransparency ? 1 : 0.08).cgColor
+        }
     }
 
     private func place(_ view: NSView, from left: CGFloat, to right: CGFloat, in toolbarFrame: CGRect) {

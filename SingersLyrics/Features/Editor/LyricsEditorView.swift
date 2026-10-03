@@ -70,7 +70,8 @@ struct LyricsEditorView: View {
                     .animation(.snappy(duration: 0.2), value: showsEditingToolbar)
                 }
                 .accessibilityIdentifier("lyricsScrollView")
-                .scrollEdgeEffectStyle(.hard, for: .top)
+                // The editor's frosted titlebar handles the top edge.
+                .scrollEdgeEffectHidden(true, for: .top)
                 .onChange(of: requestedScrollLineID) { _, id in
                     guard let id else { return }
                     withAnimation(.easeInOut(duration: 0.2)) {
