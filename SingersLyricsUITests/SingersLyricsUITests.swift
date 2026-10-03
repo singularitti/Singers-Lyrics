@@ -676,6 +676,58 @@ final class SingersLyricsUITests: XCTestCase {
     }
 
     @MainActor
+    func testPlayerScrollStopsWithFinalLyricAtViewportCenter() throws {
+        let app = launchApp()
+        _ = createSong(
+            in: app,
+            link: "https://music.apple.com/us/song/you-complete-me-theme-song-from-back-to-the-good-times/1342141668"
+        )
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("SingersLyricsTests/provided-lyrics.lrc")
+        let source = try String(contentsOf: fixture, encoding: .utf8)
+        importLyrics(source, in: app)
+
+        let scroller = identified("playerLyricsScrollView", in: app)
+        let lastIndex = source.split(whereSeparator: \.isNewline).count - 1
+        let lastLine = identified("playerLine-\(lastIndex)", in: app)
+
+        func assertFinalLineStopsAtCenter() {
+            scroller.scroll(byDeltaX: 0, deltaY: -12_000)
+            let centered = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in
+                    abs(lastLine.frame.midY - scroller.frame.midY) <= 3
+                },
+                object: nil
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [centered], timeout: 3), .completed)
+            scroller.scroll(byDeltaX: 0, deltaY: -600)
+            XCTAssertEqual(lastLine.frame.midY, scroller.frame.midY, accuracy: 3)
+        }
+
+        assertFinalLineStopsAtCenter()
+        for _ in 0..<4 { app.buttons["largerLyricsButton"].click() }
+        assertFinalLineStopsAtCenter()
+        for _ in 0..<8 { app.buttons["smallerLyricsButton"].click() }
+        assertFinalLineStopsAtCenter()
+
+        // A wheel gesture must remain where the reader left it through later
+        // timeline redraws, rather than correcting itself back down the lyrics.
+        scroller.scroll(byDeltaX: 0, deltaY: 160)
+        let manualPosition = lastLine.frame.midY
+        XCTAssertGreaterThan(manualPosition, scroller.frame.midY + 50)
+        let movedWithoutInput = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                abs(lastLine.frame.midY - manualPosition) > 3
+            },
+            object: nil
+        )
+        movedWithoutInput.isInverted = true
+        XCTAssertEqual(XCTWaiter.wait(for: [movedWithoutInput], timeout: 1), .completed)
+    }
+
+    @MainActor
     func testTimeSyncPanelAdaptsToNarrowEditorColumn() {
         let app = launchApp()
         _ = createSong(in: app)

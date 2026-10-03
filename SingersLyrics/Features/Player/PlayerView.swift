@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum PlayerTypography {
@@ -23,6 +24,8 @@ struct PlayerView: View {
     @AppStorage(PreferenceKey.defaultLyricsFontFamily) private var fallbackFontFamily = ""
     @State private var activeIndex: Int?
     @State private var autoFollow = true
+    @State private var lastLineHeight: CGFloat = 0
+    @State private var followRequest = UUID()
     @State private var isScrubbing = false
     @State private var scrubPosition = 0.0
     @State private var pollingOwner = UUID()
@@ -46,26 +49,23 @@ struct PlayerView: View {
                     .padding(.top, 12)
             }
 
+            lyricsScroller
+
+            if !hasTiming {
+                Label(
+                    "No timing recorded yet — select a lyric and use the timing panel in the editor.",
+                    systemImage: "info.circle"
+                )
+                .foregroundStyle(.blue)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 20)
+            }
+
+            Divider()
             TimelineView(.animation(minimumInterval: 1 / 30)) { context in
-                let position = playback.interpolatedPosition(for: song, at: context.date)
-                VStack(spacing: 0) {
-                    lyricsScroller(position: position)
-
-                    if !hasTiming {
-                        Label(
-                            "No timing recorded yet — select a lyric and use the timing panel in the editor.",
-                            systemImage: "info.circle"
-                        )
-                        .foregroundStyle(.blue)
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-                        .padding(.horizontal, 20)
-                    }
-
-                    Divider()
-                    transport(position: position)
-                }
+                transport(position: playback.interpolatedPosition(for: song, at: context.date))
             }
         }
         .onAppear {
@@ -129,11 +129,13 @@ struct PlayerView: View {
             .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private func lyricsScroller(position: Double) -> some View {
+    private var lyricsScroller: some View {
         GeometryReader { geometry in
             ScrollViewReader { proxy in
                 ScrollView([.horizontal, .vertical]) {
-                    LazyVStack(spacing: 0) {
+                    // Resolve every row's height up front. Lazy height estimates
+                    // otherwise correct the scroll offset as lyrics enter view.
+                    VStack(spacing: 0) {
                         // Metadata scrolls with the presentation, but is deliberately
                         // outside song.lines so it never receives a timestamp or index.
                         songHeader
@@ -148,18 +150,26 @@ struct PlayerView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 48)
                         } else {
-                            LazyVStack(spacing: 0) {
+                            VStack(spacing: 0) {
                                 ForEach(Array(song.lines.enumerated()), id: \.element.id) { index, line in
                                     lyricRow(line, index: index)
+                                        .onGeometryChange(for: CGFloat?.self, of: { proxy in
+                                            line.id == song.lines.last?.id ? proxy.size.height : nil
+                                        }) { height in
+                                            if let height { lastLineHeight = height }
+                                        }
                                         .id(line.id)
                                 }
                             }
-                            .scrollTargetLayout()
                         }
                     }
                     .frame(minWidth: max(0, geometry.size.width - 64))
-                    .padding(.vertical, 280)
+                    .padding(.top, 280)
+                    // At the bottom limit, the final row's center meets the
+                    // viewport's center, including after font or window resizing.
+                    .padding(.bottom, max(0, (geometry.size.height - lastLineHeight) / 2))
                     .padding(.horizontal, 32)
+                    .background(PlayerScrollConfiguration())
                 }
                 .scrollIndicators(.hidden, axes: .vertical)
                 .scrollIndicators(.visible, axes: .horizontal)
@@ -172,24 +182,48 @@ struct PlayerView: View {
                         autoFollow = false
                     }
                 }
-                .onChange(
-                    of: TimingUtilities.activeLineIndex(in: song.lines, position: position)
-                ) { _, next in
-                    followLyricLine(next, using: proxy)
+                .background {
+                    // Observe the playback clock without rebuilding and measuring
+                    // every attributed lyric at the timeline's 30 Hz cadence.
+                    TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+                        let position = playback.interpolatedPosition(for: song, at: context.date)
+                        Color.clear
+                            .onChange(
+                                of: TimingUtilities.activeLineIndex(in: song.lines, position: position)
+                            ) { _, next in
+                                followLyricLine(next, using: proxy)
+                            }
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 }
+                .onAppear { resumeFollowing(using: proxy) }
                 .onChange(of: playback.isPlaying(song)) { _, isPlaying in
                     guard isPlaying else { return }
-                    followLyricLine(
-                        TimingUtilities.activeLineIndex(in: song.lines, position: position),
-                        force: true,
-                        using: proxy
-                    )
+                    resumeFollowing(using: proxy)
                 }
+                .onChange(of: playback.playbackStartEvent) { _, event in
+                    guard event?.songID == song.id else { return }
+                    resumeFollowing(using: proxy)
+                }
+                .onChange(of: followRequest) { _, _ in resumeFollowing(using: proxy) }
             }
+            .id(song.id)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Track the scroller's top so the fade never covers playback banners.
         .background(ColumnToolbarAnchor(layout: toolbarLayout, column: .player))
+    }
+
+    private func resumeFollowing(using proxy: ScrollViewProxy) {
+        followLyricLine(
+            TimingUtilities.activeLineIndex(
+                in: song.lines,
+                position: playback.interpolatedPosition(for: song)
+            ),
+            force: true,
+            using: proxy
+        )
     }
 
     private func followLyricLine(
@@ -199,9 +233,9 @@ struct PlayerView: View {
     ) {
         guard force || next != activeIndex else { return }
         activeIndex = next
-        autoFollow = true
-        guard let next, song.lines.indices.contains(next) else { return }
-        withAnimation(.smooth(duration: 0.45)) {
+        if force { autoFollow = true }
+        guard autoFollow, let next, song.lines.indices.contains(next) else { return }
+        withAnimation(.easeInOut(duration: 0.5)) {
             proxy.scrollTo(song.lines[next].id, anchor: .center)
         }
     }
@@ -209,7 +243,6 @@ struct PlayerView: View {
     private func lyricRow(_ line: LyricLine, index: Int) -> some View {
         let isActive = activeIndex == index
         return Button {
-            autoFollow = true
             Task {
                 await playback.seekAndPlay(
                     song,
@@ -267,7 +300,10 @@ struct PlayerView: View {
                         } else {
                             let destination = scrubPosition
                             isScrubbing = false
-                            Task { await playback.seek(song, to: destination) }
+                            Task {
+                                await playback.seek(song, to: destination)
+                                followRequest = UUID()
+                            }
                         }
                     }
                 )
@@ -323,5 +359,32 @@ struct PlayerView: View {
         .background(.bar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("playerTransport")
+    }
+}
+
+/// Keep the lyrics' bottom limit firm without changing scrolling in the editor.
+private struct PlayerScrollConfiguration: NSViewRepresentable {
+    func makeNSView(context: Context) -> ConfigurationView { ConfigurationView() }
+
+    func updateNSView(_ view: ConfigurationView, context: Context) {
+        view.configureScrollView()
+    }
+
+    final class ConfigurationView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            configureScrollView()
+        }
+
+        override func layout() {
+            super.layout()
+            configureScrollView()
+        }
+
+        func configureScrollView() {
+            enclosingScrollView?.verticalScrollElasticity = .none
+        }
     }
 }
