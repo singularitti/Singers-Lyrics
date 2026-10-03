@@ -16,6 +16,8 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
     private var previousToolbar: NSToolbar?
     private let itemIdentifier = NSToolbarItem.Identifier("columnControls")
     private let titlebarBackground = CALayer()
+    private let playerTitlebarBackground = CALayer()
+    private let playerTitlebarMask = CAGradientLayer()
     private let titlebarBlur: CIFilter = {
         let filter = CIFilter.gaussianBlur()
         filter.radius = 6
@@ -72,10 +74,16 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
             // Sample the lyrics in the same rendering layer, below the native
             // toolbar. A system material adds an unwanted gray background here.
             contentView.wantsLayer = true
-            contentView.layer?.addSublayer(titlebarBackground)
-            titlebarBackground.masksToBounds = true
-            // SwiftUI can add content layers after the toolbar is installed.
-            titlebarBackground.zPosition = 1
+            for background in [titlebarBackground, playerTitlebarBackground] {
+                contentView.layer?.addSublayer(background)
+                background.masksToBounds = true
+                // SwiftUI can add content layers after the toolbar is installed.
+                background.zPosition = 1
+            }
+            playerTitlebarBackground.mask = playerTitlebarMask
+            playerTitlebarMask.colors = [
+                NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor,
+            ]
             updateTitlebarAppearance()
         }
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -98,6 +106,7 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         titlebarBackground.removeFromSuperlayer()
+        playerTitlebarBackground.removeFromSuperlayer()
         titlebarAppearance = nil
         if let window, window.toolbar === toolbar { window.toolbar = previousToolbar }
         window = nil
@@ -158,27 +167,53 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        guard showsEditor, let editorFrame = frame(of: editor),
-              let window, let contentView = window.contentView else {
+        guard let window, let contentView = window.contentView else {
             titlebarBackground.isHidden = true
+            playerTitlebarBackground.isHidden = true
             return
         }
         if titlebarAppearance != contentView.effectiveAppearance {
             updateTitlebarAppearance()
         }
         let contentFrame = contentView.convert(contentView.bounds, to: nil)
-        let titlebarFrame = CGRect(
-            x: editorFrame.minX,
-            y: window.contentLayoutRect.maxY,
-            width: editorFrame.width,
-            height: max(0, contentFrame.maxY - window.contentLayoutRect.maxY)
-        )
-        titlebarBackground.isHidden = false
-        let frame = contentView.convert(titlebarFrame, from: nil)
-        if titlebarBackground.frame != frame { titlebarBackground.frame = frame }
-        if titlebarBackground.contentsScale != window.backingScaleFactor {
-            titlebarBackground.contentsScale = window.backingScaleFactor
+        let titlebarHeight = max(0, contentFrame.maxY - window.contentLayoutRect.maxY)
+
+        func placeBackground(_ layer: CALayer, over columnFrame: CGRect?, fadeHeight: CGFloat = 0) {
+            guard let columnFrame, titlebarHeight > 0 else {
+                layer.isHidden = true
+                return
+            }
+            let titlebarFrame = CGRect(
+                x: columnFrame.minX,
+                y: window.contentLayoutRect.maxY - fadeHeight,
+                width: columnFrame.width,
+                height: titlebarHeight + fadeHeight
+            )
+            layer.isHidden = false
+            let frame = contentView.convert(titlebarFrame, from: nil)
+            if layer.frame != frame { layer.frame = frame }
+            if layer.contentsScale != window.backingScaleFactor {
+                layer.contentsScale = window.backingScaleFactor
+            }
         }
+
+        placeBackground(titlebarBackground, over: showsEditor ? frame(of: editor) : nil)
+        let playerFrame = showsPlayer ? frame(of: player) : nil
+        // Banners can push the scroller below the titlebar. Keep them clear.
+        let scrollsUnderTitlebar = playerFrame.map { $0.maxY >= window.contentLayoutRect.maxY - 1 } ?? false
+        let fadeHeight: CGFloat = scrollsUnderTitlebar ? min(64, playerFrame?.height ?? 0) : 0
+        placeBackground(
+            playerTitlebarBackground,
+            over: playerFrame,
+            fadeHeight: fadeHeight
+        )
+        // Fully frost the titlebar, then blend into the untouched player below.
+        playerTitlebarMask.frame = playerTitlebarBackground.bounds
+        playerTitlebarMask.startPoint = CGPoint(x: 0.5, y: contentView.isFlipped ? 0 : 1)
+        playerTitlebarMask.endPoint = CGPoint(x: 0.5, y: contentView.isFlipped ? 1 : 0)
+        playerTitlebarMask.locations = [
+            0, NSNumber(value: titlebarHeight / max(1, titlebarHeight + fadeHeight)), 1,
+        ]
     }
 
     @objc private func updateTitlebarAppearance() {
@@ -189,9 +224,12 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
         titlebarAppearance = appearance
         let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
         titlebarBackground.backgroundFilters = reduceTransparency ? nil : [titlebarBlur]
+        playerTitlebarBackground.backgroundFilters = reduceTransparency ? nil : [titlebarBlur]
         appearance.performAsCurrentDrawingAppearance {
             titlebarBackground.backgroundColor = NSColor.textBackgroundColor
                 .withAlphaComponent(reduceTransparency ? 1 : 0.08).cgColor
+            playerTitlebarBackground.backgroundColor = NSColor.windowBackgroundColor
+                .withAlphaComponent(reduceTransparency ? 1 : 0.92).cgColor
         }
     }
 

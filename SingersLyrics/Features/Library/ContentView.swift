@@ -600,11 +600,14 @@ struct ContentView: View {
     }
 
     private func playerColumn(song: Song) -> some View {
-        PlayerView(song: song)
+        PlayerView(song: song, toolbarLayout: toolbarLayout)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .backgroundExtensionEffect()
-            .background(ColumnToolbarAnchor(layout: toolbarLayout, column: .player))
+            .background {
+                // Extend only the color; mirroring the player reflects lyrics
+                // into the titlebar instead of letting the scroll edge fade them.
+                Color(nsColor: .windowBackgroundColor)
+                    .ignoresSafeArea(.container, edges: .top)
+            }
     }
 
     private var toolbarActions: some View {

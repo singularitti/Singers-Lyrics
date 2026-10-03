@@ -16,6 +16,7 @@ enum PlayerTypography {
 
 struct PlayerView: View {
     let song: Song
+    let toolbarLayout: ColumnToolbarLayout
 
     @Environment(MusicPlaybackModel.self) private var playback
     @AppStorage(PreferenceKey.lyricSize) private var lyricSize = 44.0
@@ -163,7 +164,9 @@ struct PlayerView: View {
                 .scrollIndicators(.hidden, axes: .vertical)
                 .scrollIndicators(.visible, axes: .horizontal)
                 .accessibilityIdentifier("playerLyricsScrollView")
-                .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+                .scrollEdgeEffectStyle(.soft, for: .bottom)
+                // The column toolbar blurs and fades the actual lyrics at the top.
+                .scrollEdgeEffectHidden(true, for: .top)
                 .onScrollPhaseChange { _, phase in
                     if phase == .interacting || phase == .tracking || phase == .decelerating {
                         autoFollow = false
@@ -185,6 +188,8 @@ struct PlayerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Track the scroller's top so the fade never covers playback banners.
+        .background(ColumnToolbarAnchor(layout: toolbarLayout, column: .player))
     }
 
     private func followLyricLine(
