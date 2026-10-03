@@ -93,9 +93,10 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
         let editorFrame = showsEditor ? frame(of: editor) : nil
         let playerFrame = showsPlayer ? frame(of: player) : nil
 
-        let toggleX = sidebarFrame.map { $0.maxX - inset - 28 } ?? toolbarFrame.minX
+        let toggleWidth: CGFloat = 28
+        let toggleX = sidebarFrame.map { $0.maxX - inset - toggleWidth } ?? toolbarFrame.minX
         toolbarView.toggle.isHidden = !showsSidebarToggle
-        place(toolbarView.toggle, from: toggleX, to: toggleX + 28, in: toolbarFrame)
+        place(toolbarView.toggle, from: toggleX, to: toggleX + toggleWidth, in: toolbarFrame)
 
         // In split mode the complete action block belongs to the player column.
         // The hosted view reduces search width within this exact allocation.
@@ -110,8 +111,13 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
 
         toolbarView.title.isHidden = editorFrame == nil || toolbarView.title.stringValue.isEmpty
         if let editorFrame {
-            let leadingClearance = sidebarIsVisible || !showsSidebarToggle ? 0 : 44.0
-            let titleLeft = max(editorFrame.minX, toolbarFrame.minX + leadingClearance) + inset
+            // The button centers its image inside a wider click target. The
+            // sidebar.leading artwork also has 1.5 points of trailing optical space.
+            let imageRight = toolbarView.toggle.cell?
+                .imageRect(forBounds: toolbarView.toggle.bounds).maxX ?? toggleWidth
+            let symbolRight = toggleX + imageRight - 1.5
+            let leadingControlsRight = showsSidebarToggle ? symbolRight : toolbarFrame.minX
+            let titleLeft = max(editorFrame.minX, leadingControlsRight) + inset
             let titleRight = min(editorFrame.maxX - inset, actionsLeft - inset)
             place(toolbarView.title, from: titleLeft, to: max(titleLeft, titleRight), in: toolbarFrame)
         }
