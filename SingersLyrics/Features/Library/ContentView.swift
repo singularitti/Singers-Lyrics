@@ -1417,15 +1417,21 @@ private struct SidebarMenuSectionHeader<MenuContent: View>: View {
             Menu {
                 menuContent()
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                Color.clear
                     .frame(width: 20, height: 18)
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            .overlay {
+                // Draw outside the native menu label so the symbol keeps its adaptive color.
+                Image(systemName: "ellipsis")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             .focused($menuIsFocused)
             .opacity(isHovering || menuIsFocused ? 1 : 0.001)
             .accessibilityLabel(menuLabel)
