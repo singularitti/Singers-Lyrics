@@ -271,6 +271,7 @@ struct ContentView: View {
 
     private var sidebarDivider: some View {
         Divider()
+            .ignoresSafeArea(.container, edges: .top)
             .overlay {
                 Color.clear
                     .frame(width: 9)
