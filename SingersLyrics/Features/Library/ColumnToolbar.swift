@@ -218,6 +218,10 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
 
     @objc private func updateTitlebarAppearance() {
         guard let appearance = window?.contentView?.effectiveAppearance else { return }
+        applyTitlebarAppearance(appearance)
+    }
+
+    fileprivate func applyTitlebarAppearance(_ appearance: NSAppearance) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -415,6 +419,12 @@ struct ColumnToolbarInstaller: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if let window { toolbarLayout?.attach(to: window) }
+        }
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            // CALayer stores resolved CGColors, so refresh them immediately
+            // instead of waiting for the window to gain focus or lay out.
+            toolbarLayout?.applyTitlebarAppearance(effectiveAppearance)
         }
     }
 }

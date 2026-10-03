@@ -76,6 +76,7 @@ struct SingersLyricsApp: App {
 private final class SingersLyricsApplicationDelegate: NSObject, NSApplicationDelegate {
     private var makeMainView: (() -> AnyView)?
     private var fallbackWindowController: NSWindowController?
+    private var preferencesObserver: NSObjectProtocol?
     private var isUITesting = false
     private var suppressesMainWindow = false
 
@@ -87,6 +88,36 @@ private final class SingersLyricsApplicationDelegate: NSObject, NSApplicationDel
         self.isUITesting = isUITesting
         self.suppressesMainWindow = suppressesMainWindow
         self.makeMainView = makeMainView
+    }
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        preferencesObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updateAppearance()
+            }
+        }
+        updateAppearance()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let preferencesObserver {
+            NotificationCenter.default.removeObserver(preferencesObserver)
+        }
+        preferencesObserver = nil
+    }
+
+    private func updateAppearance() {
+        let storedValue = UserDefaults.standard.string(forKey: PreferenceKey.appearance)
+        let preference = storedValue.flatMap(Appearance.init(rawValue:)) ?? .system
+        let appearance = preference.appKitAppearance
+        guard NSApp.appearance?.name != appearance?.name else { return }
+        // A single AppKit override lets every window and hosting view inherit
+        // the same appearance, including when the main window is not key.
+        NSApp.appearance = appearance
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -156,13 +187,11 @@ private struct MainAppView: View {
     let appModel: AppModel
     let musicModel: MusicPlaybackModel
     let metadataLookup: any TrackMetadataLookingUp
-    @AppStorage(PreferenceKey.appearance) private var appearance = Appearance.system.rawValue
 
     var body: some View {
         AppRootView(metadataLookup: metadataLookup)
             .environment(appModel)
             .environment(musicModel)
-            .preferredColorScheme(Appearance(rawValue: appearance)?.colorScheme)
     }
 }
 
