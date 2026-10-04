@@ -1,11 +1,15 @@
-import AppKit
 import Foundation
 import Observation
 import OSLog
 
+#if os(macOS)
+import AppKit
+#endif
+
 struct MusicActionResult: Sendable {
     var succeeded: Bool
     var permissionDenied: Bool
+    var failure: MusicPlaybackFailure? = nil
 }
 
 protocol MusicControlling: Sendable {
@@ -17,6 +21,7 @@ protocol MusicControlling: Sendable {
     func stop() async -> MusicActionResult
 }
 
+#if os(macOS)
 actor AppleMusicController: MusicControlling {
     private static let logger = Logger(
         subsystem: JSONLibraryStore.bundleIdentifier,
@@ -212,6 +217,7 @@ actor AppleMusicController: MusicControlling {
         )
     }
 }
+#endif
 
 actor InertMusicController: MusicControlling {
     private let failsActions: Bool
@@ -280,7 +286,11 @@ enum MusicPlaybackIssue: Equatable {
         case .unexpectedTrack:
             "Music switched to another track, so playback was stopped. Press Play to restart this song."
         case .unableToStart:
+            #if os(iOS)
+            "Apple Music did not become ready to play this song. Try again, or open the song in Music to check its availability."
+            #else
             "The linked track did not become ready in Music. Check the link, then try Play again."
+            #endif
         }
     }
 }
@@ -300,6 +310,15 @@ private struct PlaybackTarget: Equatable {
     }
 
     func matches(_ state: MusicState) -> Bool {
+        #if os(iOS)
+        if state.trackPersistentID.hasPrefix("catalog:") {
+            guard let expectedID = url.flatMap(ITunesTrackMetadataService.trackID(from:)),
+                  state.trackPersistentID == "catalog:\(expectedID)" else {
+                return false
+            }
+            return true
+        }
+        #endif
         guard Self.titleMatches(state.trackName, title) else {
             return false
         }
@@ -400,11 +419,13 @@ final class MusicPlaybackModel {
     private var sessionEstablished = false
     private var previousAcceptedState = MusicState()
     private var repeatsWhenFinished = false
-    private var isStartingTrack = false
+    private var operationGeneration: UInt64 = 0
+    private var activeStartupGeneration: UInt64?
 
     private(set) var state = MusicState()
     private(set) var lastActionFailed = false
     private(set) var issue: MusicPlaybackIssue?
+    private(set) var failure: MusicPlaybackFailure?
     private(set) var playbackStartEvent: PlaybackStartEvent?
 
     init(
@@ -438,7 +459,7 @@ final class MusicPlaybackModel {
         pollingTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                if !isStartingTrack {
+                if activeStartupGeneration == nil {
                     await refresh()
                 }
                 try? await Task.sleep(for: .milliseconds(300))
@@ -466,11 +487,14 @@ final class MusicPlaybackModel {
     }
 
     func endMonitoring() {
+        operationGeneration &+= 1
+        activeStartupGeneration = nil
         target = nil
         sessionPersistentID = ""
         sessionEstablished = false
         repeatsWhenFinished = false
         issue = nil
+        failure = nil
     }
 
     func interpolatedPosition(at date: Date = Date()) -> Double {
@@ -496,11 +520,24 @@ final class MusicPlaybackModel {
             && isAcceptedTargetState(state, target: PlaybackTarget(song: song))
     }
 
+    func canSynchronize(_ song: Song) -> Bool {
+        (state.state == .playing || state.state == .paused)
+            && !state.permissionDenied
+            && !state.actionFailed
+            && !lastActionFailed
+            && activeStartupGeneration == nil
+            && isAcceptedTargetState(state, target: PlaybackTarget(song: song))
+    }
+
     func play(_ song: Song, from seconds: Double = 0) async {
         let nextTarget = PlaybackTarget(song: song)
         let mustReopenLinkedTrack = issue == .unexpectedTrack
         configureTarget(nextTarget)
+        operationGeneration &+= 1
+        activeStartupGeneration = nil
+        let generation = operationGeneration
         issue = nil
+        failure = nil
         lastActionFailed = false
 
         // After an unexpected album track is stopped, `state` deliberately
@@ -509,19 +546,27 @@ final class MusicPlaybackModel {
         // current track when the user presses Play again.
         if !mustReopenLinkedTrack, isAcceptedTargetState(state, target: nextTarget) {
             establishSession(with: state)
-            await performSeek(to: seconds)
+            await performSeek(to: seconds, target: nextTarget, generation: generation)
             return
         }
 
         guard let url = nextTarget.url else {
             issue = .unableToStart
+            #if os(iOS)
+            failure = MusicPlaybackFailure(reason: .invalidLink, stage: .catalog, code: "missingSongLink")
+            #endif
             lastActionFailed = true
             return
         }
 
-        isStartingTrack = true
-        defer { isStartingTrack = false }
+        activeStartupGeneration = generation
+        defer {
+            if activeStartupGeneration == generation {
+                activeStartupGeneration = nil
+            }
+        }
         let stateBeforeOpen = await controller.currentState()
+        guard isCurrentOperation(generation) else { return }
         if stateBeforeOpen.permissionDenied {
             state = stateBeforeOpen
             sampledAt = Date()
@@ -532,7 +577,7 @@ final class MusicPlaybackModel {
             state = stateBeforeOpen
             sampledAt = Date()
             establishSession(with: stateBeforeOpen)
-            await performSeek(to: seconds)
+            await performSeek(to: seconds, target: nextTarget, generation: generation)
             return
         }
 
@@ -541,8 +586,10 @@ final class MusicPlaybackModel {
             title: nextTarget.title,
             artist: nextTarget.artist
         )
+        guard isCurrentOperation(generation) else { return }
         guard opened.succeeded else {
             lastActionFailed = true
+            failure = opened.failure
             if opened.permissionDenied {
                 state.permissionDenied = true
             } else {
@@ -555,7 +602,9 @@ final class MusicPlaybackModel {
         var candidateSamples = 0
         var lastSample = stateBeforeOpen
         for attempt in 0..<startupMaxSamples {
+            guard isCurrentOperation(generation) else { return }
             let sample = await controller.currentState()
+            guard isCurrentOperation(generation) else { return }
             lastSample = sample
             if sample.permissionDenied {
                 state = sample
@@ -564,7 +613,12 @@ final class MusicPlaybackModel {
                 return
             }
             if nextTarget.matches(sample) {
-                await acceptStartupSample(sample, seekTo: seconds)
+                await acceptStartupSample(
+                    sample,
+                    seekTo: seconds,
+                    target: nextTarget,
+                    generation: generation
+                )
                 return
             }
 
@@ -581,7 +635,12 @@ final class MusicPlaybackModel {
                 }
                 if candidateSamples >= startupStableIdentitySamples,
                    attempt + 1 >= startupIdentityGraceSamples {
-                    await acceptStartupSample(sample, seekTo: seconds)
+                    await acceptStartupSample(
+                        sample,
+                        seekTo: seconds,
+                        target: nextTarget,
+                        generation: generation
+                    )
                     return
                 }
             } else {
@@ -594,16 +653,31 @@ final class MusicPlaybackModel {
             }
         }
 
-        await stopPlaybackStartedByFailedOpen(lastSample, stateBeforeOpen: stateBeforeOpen)
+        guard isCurrentOperation(generation) else { return }
+        await stopPlaybackStartedByFailedOpen(
+            lastSample,
+            stateBeforeOpen: stateBeforeOpen,
+            generation: generation
+        )
+        guard isCurrentOperation(generation) else { return }
         issue = .unableToStart
+        #if os(iOS)
+        failure = MusicPlaybackFailure(reason: .request, stage: .playback, code: "trackIdentityTimeout")
+        #endif
         lastActionFailed = true
     }
 
-    private func acceptStartupSample(_ sample: MusicState, seekTo seconds: Double) async {
+    private func acceptStartupSample(
+        _ sample: MusicState,
+        seekTo seconds: Double,
+        target: PlaybackTarget,
+        generation: UInt64
+    ) async {
+        guard isCurrentOperation(generation) else { return }
         state = sample
         sampledAt = Date()
         establishSession(with: sample)
-        await performSeek(to: seconds)
+        await performSeek(to: seconds, target: target, generation: generation)
     }
 
     private func isChangedPersistentIdentity(
@@ -616,9 +690,11 @@ final class MusicPlaybackModel {
 
     private func stopPlaybackStartedByFailedOpen(
         _ lastSample: MusicState,
-        stateBeforeOpen: MusicState
+        stateBeforeOpen: MusicState,
+        generation: UInt64
     ) async {
-        guard lastSample.state == .playing,
+        guard isCurrentOperation(generation),
+              lastSample.state == .playing,
               target?.matches(lastSample) != true else {
             return
         }
@@ -630,6 +706,7 @@ final class MusicPlaybackModel {
         guard identityChanged || startedDuringOpen else { return }
 
         let result = await controller.stop()
+        guard isCurrentOperation(generation) else { return }
         if result.permissionDenied {
             state.permissionDenied = true
         } else if result.succeeded {
@@ -646,14 +723,26 @@ final class MusicPlaybackModel {
 
         let nextTarget = PlaybackTarget(song: song)
         configureTarget(nextTarget)
+        operationGeneration &+= 1
+        activeStartupGeneration = nil
+        let generation = operationGeneration
+        issue = nil
+        failure = nil
+        lastActionFailed = false
         if isAcceptedTargetState(state, target: nextTarget) {
             establishSession(with: state)
             if state.state == .playing || state.state == .paused {
                 let wasPaused = state.state == .paused
-                state = await controller.playPause()
+                let updatedState = await controller.playPause()
+                guard isCurrentOperation(generation) else { return }
+                state = updatedState
                 sampledAt = Date()
                 previousAcceptedState = state
-                lastActionFailed = state.permissionDenied
+                lastActionFailed = state.permissionDenied || state.actionFailed
+                failure = state.failure
+                if state.actionFailed {
+                    issue = .unableToStart
+                }
                 if wasPaused, state.state == .playing, !state.permissionDenied {
                     publishPlaybackStart(for: song.id)
                 }
@@ -662,7 +751,7 @@ final class MusicPlaybackModel {
             let restartPosition = state.duration > 0 && state.position >= state.duration - 1
                 ? 0
                 : state.position
-            await performSeek(to: restartPosition)
+            await performSeek(to: restartPosition, target: nextTarget, generation: generation)
             return
         }
         await play(song, from: 0)
@@ -671,16 +760,22 @@ final class MusicPlaybackModel {
     func seekAndPlay(_ song: Song, to seconds: Double) async {
         let nextTarget = PlaybackTarget(song: song)
         configureTarget(nextTarget)
+        operationGeneration &+= 1
+        activeStartupGeneration = nil
+        let generation = operationGeneration
+        failure = nil
+        lastActionFailed = false
 
         if !isAcceptedTargetState(state, target: nextTarget) {
             let sample = await controller.currentState()
+            guard isCurrentOperation(generation) else { return }
             state = sample
             sampledAt = Date()
         }
 
         if isAcceptedTargetState(state, target: nextTarget) {
             establishSession(with: state)
-            await performSeek(to: seconds)
+            await performSeek(to: seconds, target: nextTarget, generation: generation)
         } else {
             await play(song, from: seconds)
         }
@@ -689,9 +784,15 @@ final class MusicPlaybackModel {
     func seek(_ song: Song, to seconds: Double) async {
         let nextTarget = PlaybackTarget(song: song)
         configureTarget(nextTarget)
+        operationGeneration &+= 1
+        activeStartupGeneration = nil
+        let generation = operationGeneration
+        failure = nil
+        lastActionFailed = false
 
         if !isAcceptedTargetState(state, target: nextTarget) {
             let sample = await controller.currentState()
+            guard isCurrentOperation(generation) else { return }
             sampledAt = Date()
             if sample.permissionDenied {
                 state = sample
@@ -703,15 +804,18 @@ final class MusicPlaybackModel {
         }
 
         establishSession(with: state)
-        await performSeekWithoutStartingPlayback(to: seconds)
+        await performSeekWithoutStartingPlayback(to: seconds, generation: generation)
     }
 
     func refresh() async {
+        let generation = operationGeneration
         let sample = await controller.currentState()
-        await accept(sample)
+        guard isCurrentOperation(generation) else { return }
+        await accept(sample, generation: generation)
     }
 
-    private func accept(_ sample: MusicState) async {
+    private func accept(_ sample: MusicState, generation: UInt64) async {
+        guard isCurrentOperation(generation) else { return }
         if sample.permissionDenied {
             state = sample
             sampledAt = Date()
@@ -729,7 +833,9 @@ final class MusicPlaybackModel {
                 state = sample
                 sampledAt = Date()
                 establishSession(with: sample)
-                issue = nil
+                if !(issue == .unableToStart && lastActionFailed) {
+                    issue = nil
+                }
             } else if issue != .unexpectedTrack {
                 state = sample
                 sampledAt = Date()
@@ -740,6 +846,10 @@ final class MusicPlaybackModel {
         if isSameSessionTrack(sample, target: target) {
             if shouldRepeat(after: previousAcceptedState, current: sample) {
                 let result = await controller.seekAndPlay(to: 0)
+                guard isCurrentOperation(generation) else { return }
+                lastActionFailed = !result.succeeded
+                failure = result.failure
+                if !result.succeeded, !result.permissionDenied { issue = .unableToStart }
                 if result.permissionDenied {
                     state.permissionDenied = true
                 } else if result.succeeded {
@@ -755,7 +865,9 @@ final class MusicPlaybackModel {
             state = sample
             previousAcceptedState = sample
             sampledAt = Date()
-            issue = nil
+            if !(issue == .unableToStart && lastActionFailed) {
+                issue = nil
+            }
             return
         }
 
@@ -768,6 +880,7 @@ final class MusicPlaybackModel {
 
         if sample.state != .stopped {
             let result = await controller.stop()
+            guard isCurrentOperation(generation) else { return }
             if result.permissionDenied {
                 state.permissionDenied = true
                 sampledAt = Date()
@@ -784,34 +897,49 @@ final class MusicPlaybackModel {
         issue = .unexpectedTrack
     }
 
-    private func performSeek(to seconds: Double) async {
+    private func performSeek(
+        to seconds: Double,
+        target: PlaybackTarget,
+        generation: UInt64
+    ) async {
         let position = seconds.isFinite ? max(0, seconds) : 0
         let result = await controller.seekAndPlay(to: position)
+        guard isCurrentOperation(generation) else { return }
         lastActionFailed = !result.succeeded
+        failure = result.failure
         if result.permissionDenied {
             state.permissionDenied = true
             return
         }
-        guard result.succeeded else { return }
+        guard result.succeeded else {
+            issue = .unableToStart
+            return
+        }
         state.position = position
         state.state = .playing
         sampledAt = Date()
         previousAcceptedState = state
         issue = nil
-        if let songID = target?.songID {
-            publishPlaybackStart(for: songID)
-        }
+        publishPlaybackStart(for: target.songID)
     }
 
-    private func performSeekWithoutStartingPlayback(to seconds: Double) async {
+    private func performSeekWithoutStartingPlayback(
+        to seconds: Double,
+        generation: UInt64
+    ) async {
         let position = seconds.isFinite ? max(0, seconds) : 0
         let result = await controller.seek(to: position)
+        guard isCurrentOperation(generation) else { return }
         lastActionFailed = !result.succeeded
+        failure = result.failure
         if result.permissionDenied {
             state.permissionDenied = true
             return
         }
-        guard result.succeeded else { return }
+        guard result.succeeded else {
+            issue = .unableToStart
+            return
+        }
         state.position = position
         sampledAt = Date()
         previousAcceptedState = state
@@ -862,12 +990,19 @@ final class MusicPlaybackModel {
 
     private func configureTarget(_ nextTarget: PlaybackTarget) {
         if target != nextTarget {
+            operationGeneration &+= 1
+            activeStartupGeneration = nil
             sessionPersistentID = ""
             sessionEstablished = false
             previousAcceptedState = MusicState()
             issue = nil
+            failure = nil
         }
         target = nextTarget
+    }
+
+    private func isCurrentOperation(_ generation: UInt64) -> Bool {
+        operationGeneration == generation
     }
 
     private func refreshRepeatPreference() {

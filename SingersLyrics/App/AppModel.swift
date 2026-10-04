@@ -1,4 +1,6 @@
+#if os(macOS)
 import AppKit
+#endif
 import Foundation
 import Observation
 import SwiftUI
@@ -23,6 +25,7 @@ final class AppModel {
     }
 
     private let store: any LibraryStoring
+    private var loadTask: Task<LibraryDocument, Error>?
     private var saveTask: Task<Void, Never>?
     private var isDirty = false
 
@@ -41,8 +44,20 @@ final class AppModel {
 
     func load() async {
         guard !isLoaded else { return }
+        // An iOS file-open event can arrive during the initial scene load.
+        // Share that read so a second completion cannot overwrite an import.
+        let task: Task<LibraryDocument, Error>
+        if let loadTask {
+            task = loadTask
+        } else {
+            let store = self.store
+            task = Task { try await store.load() }
+            loadTask = task
+        }
         do {
-            library = try await store.load()
+            let document = try await task.value
+            guard !isLoaded else { return }
+            library = document
             if let saved = UserDefaults.standard.string(forKey: PreferenceKey.selectedSong),
                let id = UUID(uuidString: saved),
                library.songs.contains(where: { $0.id == id }) {
@@ -50,6 +65,7 @@ final class AppModel {
                 selectedSongIDs = [id]
             }
         } catch {
+            guard !isLoaded else { return }
             autosaveDisabled = true
             storageIssue = StorageIssue(
                 title: "Library Could Not Be Opened",
@@ -59,6 +75,7 @@ final class AppModel {
             )
         }
         isLoaded = true
+        loadTask = nil
     }
 
     func backfillLinkedTrackMetadata(using lookup: any TrackMetadataLookingUp) async {
@@ -359,9 +376,11 @@ final class AppModel {
         await persistCurrentDocument()
     }
 
+    #if os(macOS)
     func revealLibrary() {
         NSWorkspace.shared.activateFileViewerSelecting([JSONLibraryStore.defaultLibraryURL()])
     }
+    #endif
 
     private func markChanged() {
         guard !autosaveDisabled else { return }

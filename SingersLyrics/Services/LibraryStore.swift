@@ -19,7 +19,11 @@ enum LibraryStoreError: LocalizedError, Equatable {
     }
 
     var recoverySuggestion: String? {
+        #if os(iOS)
+        "The original library has been preserved. Export any songs you can still access before restoring the app from a backup."
+        #else
         "Reveal the library in Finder and preserve or repair it before trying again."
+        #endif
     }
 }
 

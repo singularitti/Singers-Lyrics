@@ -1,5 +1,7 @@
-import AppKit
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 enum Appearance: String, CaseIterable, Identifiable {
     case system
@@ -16,11 +18,21 @@ enum Appearance: String, CaseIterable, Identifiable {
         }
     }
 
+    #if os(macOS)
     var appKitAppearance: NSAppearance? {
         switch self {
         case .system: nil
         case .light: NSAppearance(named: .aqua)
         case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
+    #endif
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
         }
     }
 }
@@ -56,5 +68,8 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
+        #if os(iOS)
+        .preferredColorScheme(Appearance(rawValue: appearance)?.colorScheme)
+        #endif
     }
 }
