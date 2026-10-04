@@ -454,9 +454,11 @@ struct LyricsEditorView: View {
     }
 
     private var wideTimingHeader: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 0) {
             timingHeaderText
-                .frame(width: 190, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+
+            Spacer(minLength: 12)
 
             timingActionRow
         }
@@ -469,6 +471,7 @@ struct LyricsEditorView: View {
         VStack(alignment: .leading, spacing: 8) {
             timingHeaderText
             timingActionRow
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
@@ -490,14 +493,13 @@ struct LyricsEditorView: View {
 
     private var timingActionRow: some View {
         HStack(spacing: 6) {
-            Spacer(minLength: 0)
             playFromLineTimingButton
             pauseTimingButton
             removeTimingButton
             clearTimingSelectionButton
         }
         .environment(\.controlSize, .small)
-        .frame(maxWidth: .infinity, alignment: .trailing)
+        .fixedSize(horizontal: true, vertical: false)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("timingActionRow")
     }
@@ -694,11 +696,8 @@ struct LyricsEditorView: View {
     }
 
     private var syncStatus: String {
-        let recorded = song.lines.count { $0.timestampSeconds != nil }
-        let nowPlaying = playback.state.trackName.isEmpty
-            ? "Play the song in Music to begin"
-            : "Now playing: \(playback.state.trackName)"
-        return "\(nowPlaying) · Recorded \(recorded)/\(song.lines.count)"
+        let timed = song.lines.count { $0.timestampSeconds != nil }
+        return "Timed \(timed)/\(song.lines.count)"
     }
 
     private var permissionBanner: some View {
