@@ -365,6 +365,8 @@ struct MusicState: Equatable, Sendable {
     var trackArtist: String = ""
     var trackPersistentID: String = ""
     var permissionDenied = false
+    var actionFailed = false
+    var failure: MusicPlaybackFailure? = nil
 }
 
 struct TrackMetadata: Codable, Equatable, Sendable {
