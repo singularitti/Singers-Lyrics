@@ -475,11 +475,6 @@ struct LyricsEditorView: View {
                 compactTimingControls
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text("Click a lyric or timestamp to select · press Space outside text editing or Tap to stamp and advance · use Command/Shift for multi-selection")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
