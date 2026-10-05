@@ -27,6 +27,18 @@ On Mac, open **System Settings > Privacy & Security > Automation** and allow Sin
 
 On iPhone or iPad, use **Open Settings** from the app's permission notice and enable **Media & Apple Music** access. The app requests this permission on the first playback action, not at launch.
 
+### Start recording in Logic Pro
+
+If Logic Pro doesn't record when the player starts, check each part of the setup:
+
+- Assign the Record and Stop commands in Logic Pro first. Logic Pro receives the Singers Lyrics messages but ignores them until it learns them. In Singers Lyrics Settings, click **Send Record**; if Logic Pro doesn't start recording, follow the assignment steps in <doc:LogicProRecording>.
+- Confirm that the record button beside Play has a red outline, which shows that **Record in Logic Pro** is on. With the feature on, Play or a lyric line in the player starts recording, as does turning the button on while the song plays.
+- Open a project in Logic Pro and select the track to record. Logic Pro records on the selected track, or on its record-enabled tracks.
+- To confirm that Logic Pro receives the messages, set the display in its control bar to Custom; the MIDI activity display shows the last message received.
+- If Settings reports that Singers Lyrics couldn't create its MIDI source, quit and reopen the app, or restart the Mac.
+
+If recording starts after a delay, turn off Logic Pro's count-in. See <doc:LogicProRecording>.
+
 ### Inspect a playback failure
 
 Expand **Technical Details** in the mobile error notice. The diagnostic contains the request stage and a sanitized category or numeric error code. It doesn't include account identifiers, tokens, song URLs, or the underlying error payload.

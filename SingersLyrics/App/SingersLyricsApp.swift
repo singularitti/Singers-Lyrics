@@ -5,6 +5,7 @@ struct SingersLyricsApp: App {
     @NSApplicationDelegateAdaptor(SingersLyricsApplicationDelegate.self) private var applicationDelegate
     @State private var appModel: AppModel
     @State private var musicModel: MusicPlaybackModel
+    @State private var logicProRecording: LogicProRecordingModel
     private let metadataLookup: any TrackMetadataLookingUp
     private let isUnitTestHost: Bool
 
@@ -34,17 +35,24 @@ struct SingersLyricsApp: App {
         musicModel.beforeStartingPlayback = { [weak appModel] in
             appModel?.voiceRecordings.stop()
         }
+        let logicProRecording = LogicProRecordingModel(
+            sender: isAutomatedTesting
+                ? InertLogicProCommandSender()
+                : MIDILogicProCommandSender()
+        )
         let metadataLookup: any TrackMetadataLookingUp = isAutomatedTesting
             ? UITestTrackMetadataService()
             : ITunesTrackMetadataService()
         _appModel = State(initialValue: appModel)
         _musicModel = State(initialValue: musicModel)
+        _logicProRecording = State(initialValue: logicProRecording)
         self.metadataLookup = metadataLookup
         self.isUnitTestHost = isUnitTestHost
         applicationDelegate.configure(
             isUITesting: isUITesting,
             suppressesMainWindow: isUnitTestHost,
             prepareToTerminate: {
+                logicProRecording.stopRecording()
                 appModel.voiceRecordings.stop()
                 await appModel.flush()
                 return !appModel.hasUnsavedChanges && !appModel.voiceRecordings.hasUncommittedRecording
@@ -53,6 +61,7 @@ struct SingersLyricsApp: App {
             AnyView(MainAppView(
                 appModel: appModel,
                 musicModel: musicModel,
+                logicProRecording: logicProRecording,
                 metadataLookup: metadataLookup
             ))
         }
@@ -63,6 +72,7 @@ struct SingersLyricsApp: App {
             MainAppView(
                 appModel: appModel,
                 musicModel: musicModel,
+                logicProRecording: logicProRecording,
                 metadataLookup: metadataLookup
             )
         }
@@ -77,6 +87,7 @@ struct SingersLyricsApp: App {
 
         Settings {
             SettingsView()
+                .environment(logicProRecording)
                 .frame(width: 460)
                 .padding()
         }
@@ -221,18 +232,21 @@ private final class SingersLyricsApplicationDelegate: NSObject, NSApplicationDel
 private struct MainAppView: View {
     let appModel: AppModel
     let musicModel: MusicPlaybackModel
+    let logicProRecording: LogicProRecordingModel
     let metadataLookup: any TrackMetadataLookingUp
 
     var body: some View {
         AppRootView(metadataLookup: metadataLookup)
             .environment(appModel)
             .environment(musicModel)
+            .environment(logicProRecording)
     }
 }
 
 private struct AppRootView: View {
     @Environment(AppModel.self) private var model
     @Environment(MusicPlaybackModel.self) private var playback
+    @Environment(LogicProRecordingModel.self) private var logicProRecording
     @Environment(\.scenePhase) private var scenePhase
     let metadataLookup: any TrackMetadataLookingUp
 
@@ -240,10 +254,12 @@ private struct AppRootView: View {
         ContentView(metadataLookup: metadataLookup)
             .background {
                 RecordingWindowObserver {
+                    logicProRecording.stopRecording()
                     model.voiceRecordings.stop()
                     Task { await model.flush() }
                 }
             }
+            .background { LogicProTakeMonitor() }
             .task {
                 await model.load()
                 await model.backfillLinkedTrackMetadata(using: metadataLookup)
@@ -253,6 +269,7 @@ private struct AppRootView: View {
                 Task { await model.flush() }
             }
             .onDisappear {
+                logicProRecording.stopRecording()
                 model.voiceRecordings.stop()
                 Task { await model.flush() }
             }
@@ -285,6 +302,35 @@ private struct AppRootView: View {
                 guard let event else { return }
                 model.recordPlayback(songID: event.songID, at: event.startedAt)
             }
+    }
+}
+
+/// Ends a Logic Pro take once its song stops playing or is no longer selected.
+///
+/// Living outside the player, it keeps recording while workspace columns change, and a
+/// pause from the editor or Music still ends the take. As its own view, it confines the
+/// playback clock's updates during a take to this view.
+private struct LogicProTakeMonitor: View {
+    @Environment(AppModel.self) private var model
+    @Environment(MusicPlaybackModel.self) private var playback
+    @Environment(LogicProRecordingModel.self) private var logicProRecording
+
+    /// `nil` while Logic Pro isn't recording, then `false` once its take should end.
+    private var takeCanContinue: Bool? {
+        guard let songID = logicProRecording.recordingSongID else { return nil }
+        guard songID == model.selectedSongID, let song = model.song(withID: songID) else {
+            return false
+        }
+        return playback.isPlaying(song)
+    }
+
+    var body: some View {
+        Color.clear
+            .onChange(of: takeCanContinue) { _, canContinue in
+                if canContinue == false { logicProRecording.stopRecording() }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 

@@ -24,6 +24,7 @@ Use these guides to understand the implementation, work with song documents, and
 - <doc:AppArchitecture>
 - <doc:InterfaceDesign>
 - <doc:MusicPlayback>
+- <doc:LogicProRecording>
 - <doc:LibraryAndDocuments>
 
 ### Maintain the app

@@ -20,6 +20,7 @@ struct PlayerView: View {
     let toolbarLayout: ColumnToolbarLayout
 
     @Environment(MusicPlaybackModel.self) private var playback
+    @Environment(LogicProRecordingModel.self) private var logicProRecording
     @AppStorage(PreferenceKey.lyricSize) private var lyricSize = 44.0
     @AppStorage(PreferenceKey.defaultLyricsFontFamily) private var fallbackFontFamily = ""
     @State private var activeIndex: Int?
@@ -34,6 +35,16 @@ struct PlayerView: View {
     private var titleSize: CGFloat { PlayerTypography.titleSize(for: lyricSize) }
     private var artistSize: CGFloat { PlayerTypography.artistSize(for: lyricSize) }
     private var hasTiming: Bool { song.lines.contains { $0.timestampSeconds != nil } }
+    private var logicProRecordingState: String {
+        if logicProRecording.isRecording { return "Recording" }
+        return logicProRecording.isArmed ? "On" : "Off"
+    }
+    private var logicProRecordingHelp: String {
+        if logicProRecording.isRecording { return "Stop Recording in Logic Pro" }
+        return logicProRecording.isArmed
+            ? "Turn Off Recording in Logic Pro"
+            : "Record in Logic Pro While the Song Plays"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -248,6 +259,7 @@ struct PlayerView: View {
                     song,
                     to: TimingUtilities.timestamp(forLineAt: index, in: song.lines)
                 )
+                logicProRecording.startRecording(songID: song.id, isPlaying: playback.isPlaying(song))
             }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
@@ -340,6 +352,7 @@ struct PlayerView: View {
                 Button {
                     Task {
                         await playback.togglePlayback(for: song)
+                        logicProRecording.startRecording(songID: song.id, isPlaying: playback.isPlaying(song))
                     }
                 } label: {
                     Image(systemName: playback.isPlaying(song) ? "pause.fill" : "play.fill")
@@ -349,6 +362,25 @@ struct PlayerView: View {
                 .controlSize(.large)
                 .accessibilityLabel(playback.isPlaying(song) ? "Pause" : "Play")
                 .accessibilityIdentifier("playerPlayPauseButton")
+
+                Button {
+                    if logicProRecording.isArmed {
+                        logicProRecording.setArmed(false)
+                    } else {
+                        logicProRecording.setArmed(true)
+                        // Mid-song, the take starts now; otherwise the next Play starts it.
+                        logicProRecording.startRecording(songID: song.id, isPlaying: playback.isPlaying(song))
+                    }
+                } label: {
+                    Image(systemName: logicProRecording.isRecording ? "record.circle.fill" : "record.circle")
+                        .foregroundStyle(logicProRecording.isArmed ? Color.red : Color.primary)
+                        .symbolEffect(.pulse, isActive: logicProRecording.isRecording)
+                }
+                .help(logicProRecordingHelp)
+                .accessibilityLabel("Record in Logic Pro")
+                .accessibilityValue(logicProRecordingState)
+                .accessibilityAddTraits(.isToggle)
+                .accessibilityIdentifier("logicProRecordingButton")
 
                 Button {
                     followRequest = UUID()

@@ -949,6 +949,9 @@ enum PreferenceKey {
     static let defaultLyricsFontFamily = "defaultLyricsFontFamily"
     static let editorPanelVisible = "editorPanelVisible"
     static let previewPanelVisible = "previewPanelVisible"
+    static let recordsInLogicPro = "recordsInLogicPro"
+    /// Excluded from `all`: Logic Pro keeps learned assignments for this MIDI source identity.
+    static let logicProMIDISourceID = "logicProMIDISourceID"
 
     static let all = [
         selectedSong,
@@ -958,5 +961,6 @@ enum PreferenceKey {
         defaultLyricsFontFamily,
         editorPanelVisible,
         previewPanelVisible,
+        recordsInLogicPro,
     ]
 }

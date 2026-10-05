@@ -48,6 +48,18 @@ These commands use the checked-in scheme. There is no shared iOS test target in 
 5. Make Music advance to a different album track and confirm that playback stops while the selected song's lyric position remains frozen.
 6. Revoke Automation access and confirm that permission guidance appears.
 
+### Verify Logic Pro recording
+
+Assign the Record and Stop commands as described in <doc:LogicProRecording>, then open a Logic Pro project with an audio track selected.
+
+1. Turn on **Record in Logic Pro** in the player. Press Play and confirm that Logic Pro starts recording on the selected track once the song plays.
+2. Pause from the player and confirm that recording stops without moving Logic Pro's playhead to the project start.
+3. Turn off the record button, press Play, then turn the button on while the song plays. Confirm that recording starts immediately, and that turning the button off stops it while the song continues.
+4. Start a take, then pause from the editor's timing controls and from Music. Confirm that each pause stops recording.
+5. Start playback from the editor's **Play from Line** button and confirm that Logic Pro doesn't record.
+6. During a take, switch between the editor and player columns and confirm that recording continues. Select another song and confirm that it stops.
+7. Quit and reopen Singers Lyrics, then confirm that Logic Pro still responds without learning the commands again.
+
 ### Verify iPhone and iPad behavior
 
 1. On iPhone, check library-first launch, song selection, mode switching, and back navigation.

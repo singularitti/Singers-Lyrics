@@ -39,6 +39,8 @@ The Xcode project's synchronized source group shares code between targets. The i
 | `TrackMetadataLookingUp` | Separates Apple Music link metadata lookup from the interface. |
 | `MusicControlling` | Defines playback state, open, play/pause, seek, stop, and the explicit pause used before voice takes. |
 | `MusicPlaybackModel` | Matches the selected song to playback, manages polling, and exposes timing state. |
+| `LogicProRecordingModel` | On Mac, persists **Record in Logic Pro**, starts a Logic Pro take after a player play action, and sends Stop only to end that take. |
+| `LogicProCommandSending` | Separates the MIDI transport from that model. `MIDILogicProCommandSender` publishes the Singers Lyrics virtual MIDI source. |
 | `AttributedTextCodec` | Converts shared styled text to AppKit, UIKit, and SwiftUI representations. |
 
 `AppleMusicController` implements Mac playback with serialized Apple Events. `IOSMusicController` implements mobile playback with MediaPlayer. See <doc:MusicPlayback> for the request flow and identity checks.

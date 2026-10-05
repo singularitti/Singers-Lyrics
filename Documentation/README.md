@@ -13,6 +13,7 @@ The documentation is a standalone [Swift-DocC](https://www.swift.org/documentati
 | Understand the platform layouts | [Designing the interface](SingersLyrics.docc/Articles/InterfaceDesign.md) |
 | Work with shared models and services | [App architecture](SingersLyrics.docc/Articles/AppArchitecture.md) |
 | Understand playback APIs and offline limits | [Playing music](SingersLyrics.docc/Articles/MusicPlayback.md) |
+| Record Logic Pro takes from the Mac player | [Recording in Logic Pro](SingersLyrics.docc/Articles/LogicProRecording.md) |
 | Store, transfer, and recover songs | [Managing library documents](SingersLyrics.docc/Articles/LibraryAndDocuments.md) |
 | Validate changes | [Testing the app](SingersLyrics.docc/Articles/Testing.md) |
 | Resolve device and playback issues | [Troubleshooting](SingersLyrics.docc/Articles/Troubleshooting.md) |

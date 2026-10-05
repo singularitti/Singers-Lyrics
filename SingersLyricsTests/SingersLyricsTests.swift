@@ -487,8 +487,8 @@ final class SingersLyricsTests: XCTestCase {
 
         XCTAssertEqual(SongSortMode.title.sorted([beta, alpha]).map(\.id), [alpha.id, beta.id])
         XCTAssertEqual(SongSortMode.artist.sorted([beta, alpha]).map(\.id), [beta.id, alpha.id])
-        XCTAssertEqual(SongSortMode.added.sorted([beta, alpha]).map(\.id), [alpha.id, beta.id])
-        XCTAssertEqual(SongSortMode.edited.sorted([beta, alpha]).map(\.id), [beta.id, alpha.id])
+        XCTAssertEqual(SongSortMode.dateAdded.sorted([beta, alpha]).map(\.id), [alpha.id, beta.id])
+        XCTAssertEqual(SongSortMode.dateModified.sorted([beta, alpha]).map(\.id), [beta.id, alpha.id])
     }
 
     func testPlayerMetadataTypographyTracksTheLyricScaleAcrossTheFullRange() {
@@ -1349,6 +1349,96 @@ final class SingersLyricsTests: XCTestCase {
         let stopCount = await controller.recordedStopCount()
         XCTAssertEqual(stopCount, 0)
         XCTAssertNil(model.issue)
+    }
+
+    func testLogicProCommandsUseUndefinedControllersOnChannelSixteen() {
+        XCTAssertEqual(LogicProCommand.record.universalMIDIPacket, 0x20BF_667F)
+        XCTAssertEqual(LogicProCommand.stop.universalMIDIPacket, 0x20BF_677F)
+    }
+
+    @MainActor
+    func testLogicProRecordingStartsOnlyWhenArmedAndPlaying() {
+        let sender = InertLogicProCommandSender()
+        let model = LogicProRecordingModel(sender: sender, defaults: isolatedDefaults())
+        let songID = UUID()
+
+        model.startRecording(songID: songID, isPlaying: true)
+        model.setArmed(true)
+        model.startRecording(songID: songID, isPlaying: false)
+        XCTAssertEqual(sender.sentCommands, [])
+        XCTAssertFalse(model.isRecording)
+
+        model.startRecording(songID: songID, isPlaying: true)
+        model.startRecording(songID: songID, isPlaying: true)
+        XCTAssertEqual(sender.sentCommands, [.record])
+        XCTAssertEqual(model.recordingSongID, songID)
+    }
+
+    @MainActor
+    func testLogicProStopIsSentOnlyToEndAStartedTake() {
+        let sender = InertLogicProCommandSender()
+        let model = LogicProRecordingModel(sender: sender, defaults: isolatedDefaults())
+        model.setArmed(true)
+
+        model.stopRecording()
+        XCTAssertEqual(sender.sentCommands, [])
+
+        model.startRecording(songID: UUID(), isPlaying: true)
+        model.stopRecording()
+        model.stopRecording()
+        XCTAssertEqual(sender.sentCommands, [.record, .stop])
+        XCTAssertNil(model.recordingSongID)
+    }
+
+    @MainActor
+    func testLogicProTakeForAnotherSongEndsBeforeRecordingAgain() {
+        let sender = InertLogicProCommandSender()
+        let model = LogicProRecordingModel(sender: sender, defaults: isolatedDefaults())
+        let nextSongID = UUID()
+        model.setArmed(true)
+
+        model.startRecording(songID: UUID(), isPlaying: true)
+        model.startRecording(songID: nextSongID, isPlaying: true)
+
+        XCTAssertEqual(sender.sentCommands, [.record, .stop, .record])
+        XCTAssertEqual(model.recordingSongID, nextSongID)
+    }
+
+    @MainActor
+    func testTurningOffLogicProRecordingEndsTheTakeAndPersists() {
+        let defaults = isolatedDefaults()
+        let sender = InertLogicProCommandSender()
+        let model = LogicProRecordingModel(sender: sender, defaults: defaults)
+        model.setArmed(true)
+        XCTAssertTrue(LogicProRecordingModel(sender: InertLogicProCommandSender(), defaults: defaults).isArmed)
+
+        model.startRecording(songID: UUID(), isPlaying: true)
+        model.setArmed(false)
+
+        XCTAssertEqual(sender.sentCommands, [.record, .stop])
+        XCTAssertFalse(model.isRecording)
+        XCTAssertFalse(LogicProRecordingModel(sender: InertLogicProCommandSender(), defaults: defaults).isArmed)
+    }
+
+    @MainActor
+    func testUnavailableMIDILeavesLogicProRecordingStopped() {
+        let model = LogicProRecordingModel(
+            sender: InertLogicProCommandSender(isAvailable: false),
+            defaults: isolatedDefaults()
+        )
+        model.setArmed(true)
+        XCTAssertTrue(model.isUnavailable)
+
+        model.startRecording(songID: UUID(), isPlaying: true)
+        XCTAssertFalse(model.isRecording)
+    }
+
+    private func isolatedDefaults() -> UserDefaults {
+        let suiteName = "SingersLyricsTests.\(UUID().uuidString)"
+        addTeardownBlock {
+            UserDefaults().removePersistentDomain(forName: suiteName)
+        }
+        return UserDefaults(suiteName: suiteName)!
     }
 
     private func linkedSong(title: String, artist: String) -> Song {

@@ -58,5 +58,6 @@ Downloading a song enables offline listening in supported players; it doesn't gu
 ## See Also
 
 - <doc:AppArchitecture>
+- <doc:LogicProRecording>
 - <doc:Testing>
 - <doc:Troubleshooting>
