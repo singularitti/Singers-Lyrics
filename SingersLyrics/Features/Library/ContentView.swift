@@ -205,7 +205,9 @@ struct ContentView: View {
                     song: song,
                     availableTags: tagSummaries.map(\.name)
                 ) { title, artist, album, tags in
-                    var updated = song
+                    // Audio can finish while this sheet is open. Update only the
+                    // edited metadata on the current song, preserving its latest lines.
+                    guard var updated = model.song(withID: song.id) else { return }
                     updated.title = title
                     updated.artist = artist
                     updated.album = album
@@ -256,10 +258,10 @@ struct ContentView: View {
                 layout: toolbarLayout,
                 sidebarIsVisible: sidebarIsVisible,
                 showsSidebarToggle: showsSidebarToggle,
-                showsEditor: workspaceLayout.showsEditor,
-                showsPlayer: workspaceLayout != .editorOnly,
-                title: selectedSong?.title,
-                artist: selectedSong?.artist,
+                showsEditor: !model.isShowingRecordingTrash && workspaceLayout.showsEditor,
+                showsPlayer: !model.isShowingRecordingTrash && workspaceLayout != .editorOnly,
+                title: model.isShowingRecordingTrash ? "Trash" : selectedSong?.title,
+                artist: model.isShowingRecordingTrash ? nil : selectedSong?.artist,
                 actions: AnyView(toolbarActions),
                 onToggleSidebar: {
                     manuallyCollapsedSidebar = sidebarIsVisible
@@ -311,6 +313,8 @@ struct ContentView: View {
         if !model.isLoaded {
             ProgressView("Opening Library…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if model.isShowingRecordingTrash {
+            RecordingsTrashView()
         } else if let song = selectedSong,
                   let songBinding = model.bindingForSelectedSong() {
             switch workspaceLayout {
@@ -344,10 +348,7 @@ struct ContentView: View {
     }
 
     private var sidebar: some View {
-        List(selection: Binding(
-            get: { model.selectedSongIDs },
-            set: { model.selectSongs($0) }
-        )) {
+        List(selection: sidebarSelection) {
             SidebarMenuSectionHeader(
                 title: "Songs",
                 isExpanded: sidebarSectionBinding(.songs),
@@ -425,14 +426,50 @@ struct ContentView: View {
                     }
                 }
             }
+
+            HStack {
+                Text("Trash")
+                    .font(.body.weight(.regular))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(model.library.trashedRecordings.count, format: .number)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+            .textCase(nil)
+            .sidebarSectionHeaderRow()
+            .tag(SidebarDestination.recordingTrash)
+            .accessibilityLabel("Trash, \(model.library.trashedRecordings.count) recordings")
+            .accessibilityIdentifier("recordingTrashSidebarItem")
         }
-        .contextMenu(forSelectionType: UUID.self) { songIDs in
-            songContextMenu(for: songIDs)
+        .contextMenu(forSelectionType: SidebarDestination.self) { destinations in
+            let songIDs = Set(destinations.compactMap(\.songID))
+            if !songIDs.isEmpty { songContextMenu(for: songIDs) }
         }
         .listStyle(.sidebar)
         .contentMargins(.horizontal, 0, for: .scrollContent)
         .scrollIndicators(.visible, axes: .vertical)
         .accessibilityIdentifier("songList")
+    }
+
+    private var sidebarSelection: Binding<Set<SidebarDestination>> {
+        Binding(
+            get: {
+                model.isShowingRecordingTrash
+                    ? [.recordingTrash]
+                    : Set(model.selectedSongIDs.map(SidebarDestination.song))
+            },
+            set: { destinations in
+                let songIDs = Set(destinations.compactMap(\.songID))
+                if destinations.contains(.recordingTrash),
+                   !model.isShowingRecordingTrash || songIDs.isEmpty {
+                    model.showRecordingTrash()
+                } else {
+                    model.selectSongs(songIDs)
+                }
+            }
+        )
     }
 
     @ViewBuilder
@@ -487,7 +524,7 @@ struct ContentView: View {
         .padding(.vertical, 3)
         .frame(maxWidth: .infinity, alignment: .leading)
         .sidebarSectionItemRow()
-        .tag(song.id)
+        .tag(SidebarDestination.song(song.id))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             accessibilityComponents
@@ -610,7 +647,14 @@ struct ContentView: View {
             }
     }
 
+    @ViewBuilder
     private var toolbarActions: some View {
+        if !model.isShowingRecordingTrash {
+            songToolbarActions
+        }
+    }
+
+    private var songToolbarActions: some View {
         GeometryReader { geometry in
             let searchWidth = min(
                 AppLayoutMetrics.toolbarSearchWidth,
@@ -879,13 +923,13 @@ struct ContentView: View {
 
     private var deleteConfirmationMessage: String {
         if songIDsToDelete.count > 1 {
-            return "\(songIDsToDelete.count) songs and their lyrics will be permanently removed."
+            return "\(songIDsToDelete.count) songs and their lyrics will be permanently removed. Their voice recordings will move to Trash."
         }
         let title = songIDsToDelete.first
             .flatMap { model.song(withID: $0)?.title }
             .flatMap { $0.isEmpty ? nil : $0 }
             ?? "Untitled"
-        return "“\(title)” and its lyrics will be permanently removed."
+        return "“\(title)” and its lyrics will be permanently removed. Its voice recordings will move to Trash."
     }
 
     @ViewBuilder
@@ -939,19 +983,17 @@ struct ContentView: View {
     }
 
     private func prepareSongBundleExport(_ ids: Set<UUID>) {
+        if model.voiceRecordings.recordingSongID.map(ids.contains) == true {
+            model.voiceRecordings.finishRecording()
+            guard !model.voiceRecordings.hasUncommittedRecording else { return }
+        }
         let songs = model.library.songs.filter { ids.contains($0.id) }
         guard !songs.isEmpty else { return }
-        do {
-            pendingExport = PendingSongExport(
-                document: SongExportFileDocument(
-                    data: try SongBundleCodec.encode(SongBundle(songs: songs))
-                ),
-                contentType: .singersLyricsSongBundle,
-                defaultFilename: songBundleFilename(for: songs)
-            )
-        } catch {
-            exportError = error.localizedDescription
-        }
+        pendingExport = PendingSongExport(
+            document: SongExportFileDocument(bundle: SongBundle(songs: songs)),
+            contentType: .singersLyricsSongBundle,
+            defaultFilename: songBundleFilename(for: songs)
+        )
     }
 
     private func prepareLRCExport(_ song: Song?) {
@@ -966,7 +1008,7 @@ struct ContentView: View {
     private func importSongBundle(from url: URL) throws {
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-        let bundle = try SongBundleCodec.decode(Data(contentsOf: url))
+        let bundle = try SongBundleCodec.decode(contentsOf: url)
         model.importSongs(bundle.songs)
     }
 
@@ -1124,21 +1166,34 @@ private struct SongExportFileDocument: FileDocument {
         [.singersLyricsSongBundle, .lrcLyrics]
     }
 
-    var data: Data
+    private enum Content: Sendable {
+        case lyrics(Data)
+        case bundle(SongBundle)
+    }
+
+    private var content: Content
 
     init(data: Data) {
-        self.data = data
+        content = .lyrics(data)
+    }
+
+    init(bundle: SongBundle) {
+        content = .bundle(bundle)
     }
 
     init(configuration: ReadConfiguration) throws {
-        guard let data = configuration.file.regularFileContents else {
-            throw CocoaError(.fileReadCorruptFile)
+        if let data = configuration.file.regularFileContents {
+            content = .lyrics(data)
+        } else {
+            content = .bundle(try SongBundleCodec.decode(fileWrapper: configuration.file))
         }
-        self.data = data
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        FileWrapper(regularFileWithContents: data)
+        switch content {
+        case .lyrics(let data): FileWrapper(regularFileWithContents: data)
+        case .bundle(let bundle): try SongBundleCodec.fileWrapper(for: bundle)
+        }
     }
 }
 
@@ -1170,6 +1225,16 @@ private enum SidebarSectionID: String, Hashable {
     case recent
     case favorite
     case tags
+}
+
+private enum SidebarDestination: Hashable {
+    case song(UUID)
+    case recordingTrash
+
+    var songID: UUID? {
+        guard case .song(let id) = self else { return nil }
+        return id
+    }
 }
 
 private struct SidebarSongItem: Identifiable {

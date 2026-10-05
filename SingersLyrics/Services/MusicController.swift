@@ -19,9 +19,19 @@ protocol MusicControlling: Sendable {
     func seek(to seconds: Double) async -> MusicActionResult
     func seekAndPlay(to seconds: Double) async -> MusicActionResult
     func stop() async -> MusicActionResult
+    #if os(macOS)
+    func pause() async -> MusicActionResult
+    #endif
 }
 
 #if os(macOS)
+extension MusicControlling {
+    // A toggle is unsafe here: conformers must implement an explicit pause.
+    func pause() async -> MusicActionResult {
+        MusicActionResult(succeeded: false, permissionDenied: false)
+    }
+}
+
 actor AppleMusicController: MusicControlling {
     private static let logger = Logger(
         subsystem: JSONLibraryStore.bundleIdentifier,
@@ -182,6 +192,25 @@ actor AppleMusicController: MusicControlling {
         )
     }
 
+    func pause() async -> MusicActionResult {
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music").isEmpty else {
+            return MusicActionResult(succeeded: true, permissionDenied: false)
+        }
+        let result = run(
+            """
+            if application "Music" is running then
+              tell application "Music"
+                if player state is playing then pause
+              end tell
+            end if
+            """
+        )
+        return MusicActionResult(
+            succeeded: result.succeeded,
+            permissionDenied: result.permissionDenied
+        )
+    }
+
     private static func appleScriptLiteral(_ value: String) -> String {
         value
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -275,6 +304,16 @@ actor InertMusicController: MusicControlling {
         state.state = .stopped
         return MusicActionResult(succeeded: true, permissionDenied: false)
     }
+
+    #if os(macOS)
+    func pause() async -> MusicActionResult {
+        guard !failsActions else {
+            return MusicActionResult(succeeded: false, permissionDenied: false)
+        }
+        if state.state == .playing { state.state = .paused }
+        return MusicActionResult(succeeded: true, permissionDenied: false)
+    }
+    #endif
 }
 
 enum MusicPlaybackIssue: Equatable {
@@ -421,6 +460,10 @@ final class MusicPlaybackModel {
     private var repeatsWhenFinished = false
     private var operationGeneration: UInt64 = 0
     private var activeStartupGeneration: UInt64?
+    #if os(macOS)
+    private var repeatSuppressedForVoice = false
+    var beforeStartingPlayback: (@MainActor () -> Void)?
+    #endif
 
     private(set) var state = MusicState()
     private(set) var lastActionFailed = false
@@ -530,6 +573,9 @@ final class MusicPlaybackModel {
     }
 
     func play(_ song: Song, from seconds: Double = 0) async {
+        #if os(macOS)
+        prepareToStartPlayback()
+        #endif
         let nextTarget = PlaybackTarget(song: song)
         let mustReopenLinkedTrack = issue == .unexpectedTrack
         configureTarget(nextTarget)
@@ -716,6 +762,9 @@ final class MusicPlaybackModel {
     }
 
     func togglePlayback(for song: Song) async {
+        #if os(macOS)
+        prepareToStartPlayback()
+        #endif
         if issue == .unexpectedTrack {
             await play(song, from: 0)
             return
@@ -758,6 +807,9 @@ final class MusicPlaybackModel {
     }
 
     func seekAndPlay(_ song: Song, to seconds: Double) async {
+        #if os(macOS)
+        prepareToStartPlayback()
+        #endif
         let nextTarget = PlaybackTarget(song: song)
         configureTarget(nextTarget)
         operationGeneration &+= 1
@@ -845,6 +897,9 @@ final class MusicPlaybackModel {
 
         if isSameSessionTrack(sample, target: target) {
             if shouldRepeat(after: previousAcceptedState, current: sample) {
+                #if os(macOS)
+                beforeStartingPlayback?()
+                #endif
                 let result = await controller.seekAndPlay(to: 0)
                 guard isCurrentOperation(generation) else { return }
                 lastActionFailed = !result.succeeded
@@ -979,6 +1034,9 @@ final class MusicPlaybackModel {
     }
 
     private func shouldRepeat(after previous: MusicState, current: MusicState) -> Bool {
+        #if os(macOS)
+        guard !repeatSuppressedForVoice else { return false }
+        #endif
         guard repeatsWhenFinished,
               previous.state == .playing,
               current.state == .stopped,
@@ -1014,6 +1072,34 @@ final class MusicPlaybackModel {
             $0.target.songID == target.songID && $0.repeatsWhenFinished
         }
     }
+
+    #if os(macOS)
+    func pauseForVoiceRecording() async -> Bool {
+        let needsPause = state.state == .playing || activeStartupGeneration != nil
+        operationGeneration &+= 1
+        activeStartupGeneration = nil
+        repeatSuppressedForVoice = true
+        let generation = operationGeneration
+        // An idle practice session needs no Apple Events or Automation consent.
+        guard needsPause else { return true }
+
+        let result = await controller.pause()
+        guard isCurrentOperation(generation) else { return false }
+        lastActionFailed = !result.succeeded
+        failure = result.failure
+        if result.permissionDenied { state.permissionDenied = true }
+        guard result.succeeded else { return false }
+        if state.state == .playing { state.state = .paused }
+        previousAcceptedState = state
+        sampledAt = Date()
+        return true
+    }
+
+    private func prepareToStartPlayback() {
+        beforeStartingPlayback?()
+        repeatSuppressedForVoice = false
+    }
+    #endif
 }
 
 private extension Collection {

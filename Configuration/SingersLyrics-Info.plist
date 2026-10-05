@@ -2,12 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record voice notes for your lyric annotations. Recordings stay in your library and are included when you export a song bundle.</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
 			<key>UTTypeConformsTo</key>
 			<array>
-				<string>public.json</string>
+				<string>com.apple.package</string>
 			</array>
 			<key>UTTypeDescription</key>
 			<string>Singers Lyrics Song Bundle</string>
@@ -20,7 +22,7 @@
 					<string>singerslyrics</string>
 				</array>
 				<key>public.mime-type</key>
-				<string>application/vnd.singerslyrics.song-bundle+json</string>
+					<string>application/vnd.singerslyrics.song-bundle</string>
 			</dict>
 		</dict>
 	</array>

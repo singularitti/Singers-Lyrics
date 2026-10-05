@@ -127,6 +127,9 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
         let sidebarFrame = sidebarIsVisible ? frame(of: sidebar) : nil
         let editorFrame = showsEditor ? frame(of: editor) : nil
         let playerFrame = showsPlayer ? frame(of: player) : nil
+        // A full-workspace page such as Trash has a title without song actions.
+        let usesWorkspaceTitle = !showsEditor && !showsPlayer
+        let titleFrame = usesWorkspaceTitle ? frame(of: workspace) : editorFrame
 
         let toggleWidth: CGFloat = 28
         let toggleX = sidebarFrame.map { $0.maxX - inset - toggleWidth } ?? toolbarFrame.minX
@@ -136,24 +139,27 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
         // In split mode the complete action block belongs to the player column.
         // The hosted view reduces search width within this exact allocation.
         let actionsLeft: CGFloat
-        if let playerFrame {
+        if usesWorkspaceTitle {
+            actionsLeft = right
+        } else if let playerFrame {
             actionsLeft = max(playerFrame.minX + inset, toolbarFrame.minX)
         } else {
             let workspaceLeft = frame(of: workspace)?.minX ?? toolbarFrame.minX
             actionsLeft = max(workspaceLeft + inset, right - AppLayoutMetrics.maximumToolbarActionsWidth)
         }
+        toolbarView.actions.isHidden = usesWorkspaceTitle
         place(toolbarView.actions, from: actionsLeft, to: right, in: toolbarFrame)
 
-        toolbarView.title.isHidden = editorFrame == nil || toolbarView.title.stringValue.isEmpty
-        if let editorFrame {
+        toolbarView.title.isHidden = titleFrame == nil || toolbarView.title.stringValue.isEmpty
+        if let titleFrame {
             // The button centers its image inside a wider click target. The
             // sidebar.leading artwork also has 1.5 points of trailing optical space.
             let imageRight = toolbarView.toggle.cell?
                 .imageRect(forBounds: toolbarView.toggle.bounds).maxX ?? toggleWidth
             let symbolRight = toggleX + imageRight - 1.5
             let leadingControlsRight = showsSidebarToggle ? symbolRight : toolbarFrame.minX
-            let titleLeft = max(editorFrame.minX, leadingControlsRight) + inset
-            let titleRight = min(editorFrame.maxX - inset, actionsLeft - inset)
+            let titleLeft = max(titleFrame.minX, leadingControlsRight) + inset
+            let titleRight = min(titleFrame.maxX - inset, actionsLeft - inset)
             place(toolbarView.title, from: titleLeft, to: max(titleLeft, titleRight), in: toolbarFrame)
         }
     }
@@ -341,23 +347,27 @@ private final class ColumnToolbarView: NSView {
             return
         }
         let displayTitle = title.isEmpty ? "Untitled" : title
-        let artist = artist.flatMap { $0.isEmpty ? nil : $0 } ?? "Unknown Singer"
+        // A nil artist denotes a page title, while an empty song artist still
+        // uses the song metadata fallback.
+        let displayArtist = artist.map { $0.isEmpty ? "Unknown Singer" : $0 }
         let size = NSFont.preferredFont(forTextStyle: .title2).pointSize
         let value = NSMutableAttributedString(string: displayTitle, attributes: [
             .font: NSFont.systemFont(ofSize: size, weight: .semibold), .foregroundColor: NSColor.labelColor,
         ])
-        value.append(NSAttributedString(string: " | ", attributes: [
-            .font: NSFont.systemFont(ofSize: size), .foregroundColor: NSColor.tertiaryLabelColor,
-        ]))
-        value.append(NSAttributedString(string: artist, attributes: [
-            .font: NSFont.systemFont(ofSize: size), .foregroundColor: NSColor.secondaryLabelColor,
-        ]))
+        if let displayArtist {
+            value.append(NSAttributedString(string: " | ", attributes: [
+                .font: NSFont.systemFont(ofSize: size), .foregroundColor: NSColor.tertiaryLabelColor,
+            ]))
+            value.append(NSAttributedString(string: displayArtist, attributes: [
+                .font: NSFont.systemFont(ofSize: size), .foregroundColor: NSColor.secondaryLabelColor,
+            ]))
+        }
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
         value.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: value.length))
         if !self.title.attributedStringValue.isEqual(to: value) { self.title.attributedStringValue = value }
-        self.title.setAccessibilityLabel("\(displayTitle) | \(artist)")
-        self.title.setAccessibilityTitle("Song title and singer")
+        self.title.setAccessibilityLabel(displayArtist.map { "\(displayTitle) | \($0)" } ?? displayTitle)
+        self.title.setAccessibilityTitle(displayArtist == nil ? "Page title" : "Song title and singer")
     }
 }
 

@@ -5,10 +5,31 @@ struct LibraryDocument: Codable, Equatable, Sendable {
 
     var schemaVersion: Int
     var songs: [Song]
+    var trashedRecordings: [TrashedRecording]
 
-    init(schemaVersion: Int = Self.currentSchemaVersion, songs: [Song] = []) {
+    init(
+        schemaVersion: Int = Self.currentSchemaVersion,
+        songs: [Song] = [],
+        trashedRecordings: [TrashedRecording] = []
+    ) {
         self.schemaVersion = schemaVersion
         self.songs = songs
+        self.trashedRecordings = trashedRecordings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, songs, trashedRecordings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            schemaVersion: try container.decode(Int.self, forKey: .schemaVersion),
+            songs: try container.decode([Song].self, forKey: .songs),
+            trashedRecordings: try container.decodeIfPresent(
+                [TrashedRecording].self, forKey: .trashedRecordings
+            ) ?? []
+        )
     }
 }
 
@@ -123,11 +144,209 @@ struct Song: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+struct VoiceRecording: Codable, Equatable, Identifiable, Sendable {
+    var id: UUID
+    var name: String
+    var createdAt: Date
+    var duration: Double
+    var audioData: Data
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        createdAt: Date = Date(),
+        duration: Double,
+        audioData: Data
+    ) {
+        self.id = id
+        self.name = name
+        self.createdAt = createdAt
+        self.duration = duration
+        self.audioData = audioData
+    }
+
+    // Audio belongs in the recording asset tree, never in JSON metadata.
+    private enum CodingKeys: String, CodingKey {
+        case id, name, createdAt, duration
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(UUID.self, forKey: .id),
+            name: try container.decode(String.self, forKey: .name),
+            createdAt: try container.decode(Date.self, forKey: .createdAt),
+            duration: try container.decode(Double.self, forKey: .duration),
+            audioData: Data()
+        )
+    }
+}
+
+struct TrashedRecording: Codable, Equatable, Identifiable, Sendable {
+    var recording: VoiceRecording
+    var songID: UUID
+    var lineID: UUID
+    var songTitle: String
+    var songArtist: String
+    var lyricText: String
+    var annotation: String
+    var deletedAt: Date
+    var isPendingPermanentDeletion: Bool
+    var restorationContext: RecordingRestorationContext?
+
+    var id: UUID { recording.id }
+
+    init(
+        recording: VoiceRecording,
+        songID: UUID,
+        lineID: UUID,
+        songTitle: String,
+        songArtist: String,
+        lyricText: String,
+        annotation: String,
+        deletedAt: Date,
+        isPendingPermanentDeletion: Bool = false,
+        restorationContext: RecordingRestorationContext? = nil
+    ) {
+        self.recording = recording
+        self.songID = songID
+        self.lineID = lineID
+        self.songTitle = songTitle
+        self.songArtist = songArtist
+        self.lyricText = lyricText
+        self.annotation = annotation
+        self.deletedAt = deletedAt
+        self.isPendingPermanentDeletion = isPendingPermanentDeletion
+        self.restorationContext = restorationContext
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case recording, songID, lineID, songTitle, songArtist, lyricText, annotation
+        case deletedAt, isPendingPermanentDeletion
+        case restorationContext
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            recording: try container.decode(VoiceRecording.self, forKey: .recording),
+            songID: try container.decode(UUID.self, forKey: .songID),
+            lineID: try container.decode(UUID.self, forKey: .lineID),
+            songTitle: try container.decode(String.self, forKey: .songTitle),
+            songArtist: try container.decode(String.self, forKey: .songArtist),
+            lyricText: try container.decode(String.self, forKey: .lyricText),
+            annotation: try container.decode(String.self, forKey: .annotation),
+            deletedAt: try container.decode(Date.self, forKey: .deletedAt),
+            isPendingPermanentDeletion: try container.decodeIfPresent(
+                Bool.self, forKey: .isPendingPermanentDeletion
+            ) ?? false,
+            restorationContext: try container.decodeIfPresent(
+                RecordingRestorationContext.self, forKey: .restorationContext
+            )
+        )
+    }
+}
+
+/// A small ownership snapshot for restoring a deleted lyric line or song. It
+/// contains rich lyric styling and song metadata, but never sibling lines or audio.
+struct RecordingRestorationContext: Codable, Equatable, Sendable {
+    var song: Song
+    var line: LyricLine
+    var lineIndex: Int
+    var songIndex: Int?
+    var lineOrder: [UUID]
+    var songOrder: [UUID]
+
+    init(
+        song: Song,
+        line: LyricLine,
+        lineIndex: Int,
+        songIndex: Int? = nil,
+        lineOrder: [UUID] = [],
+        songOrder: [UUID] = []
+    ) {
+        var metadata = song
+        metadata.lines = []
+        var lyric = line
+        lyric.recordings = []
+        lyric.selectedRecordingID = nil
+        self.song = metadata
+        self.line = lyric
+        self.lineIndex = max(0, lineIndex)
+        self.songIndex = songIndex.map { max(0, $0) }
+        self.lineOrder = lineOrder
+        self.songOrder = songOrder
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case song, line, lineIndex, songIndex, lineOrder, songOrder
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            song: try container.decode(Song.self, forKey: .song),
+            line: try container.decode(LyricLine.self, forKey: .line),
+            lineIndex: try container.decodeIfPresent(Int.self, forKey: .lineIndex) ?? 0,
+            songIndex: try container.decodeIfPresent(Int.self, forKey: .songIndex),
+            lineOrder: try container.decodeIfPresent([UUID].self, forKey: .lineOrder) ?? [],
+            songOrder: try container.decodeIfPresent([UUID].self, forKey: .songOrder) ?? []
+        )
+    }
+}
+
 struct LyricLine: Codable, Equatable, Identifiable, Sendable {
     var id: UUID
     var annotation: String
     var lyric: StyledText
     var timestampSeconds: Double?
+    var recordings: [VoiceRecording]
+    var selectedRecordingID: UUID?
+
+    var selectedRecording: VoiceRecording? {
+        if let selectedRecordingID,
+           let selected = recordings.first(where: { $0.id == selectedRecordingID }) {
+            return selected
+        }
+        return recordings.enumerated().max { lhs, rhs in
+            if lhs.element.createdAt == rhs.element.createdAt {
+                return lhs.offset < rhs.offset
+            }
+            return lhs.element.createdAt < rhs.element.createdAt
+        }?.element
+    }
+
+    init(
+        id: UUID,
+        annotation: String,
+        lyric: StyledText,
+        timestampSeconds: Double?,
+        recordings: [VoiceRecording] = [],
+        selectedRecordingID: UUID? = nil
+    ) {
+        self.id = id
+        self.annotation = annotation
+        self.lyric = lyric
+        self.timestampSeconds = timestampSeconds
+        self.recordings = recordings
+        self.selectedRecordingID = selectedRecordingID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, annotation, lyric, timestampSeconds, recordings, selectedRecordingID
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(UUID.self, forKey: .id),
+            annotation: try container.decode(String.self, forKey: .annotation),
+            lyric: try container.decode(StyledText.self, forKey: .lyric),
+            timestampSeconds: try container.decodeIfPresent(Double.self, forKey: .timestampSeconds),
+            recordings: try container.decodeIfPresent([VoiceRecording].self, forKey: .recordings) ?? [],
+            selectedRecordingID: try container.decodeIfPresent(UUID.self, forKey: .selectedRecordingID)
+        )
+    }
 
     static func blank(text: String = "") -> LyricLine {
         LyricLine(

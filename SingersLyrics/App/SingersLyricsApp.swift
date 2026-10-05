@@ -28,6 +28,12 @@ struct SingersLyricsApp: App {
             : AppleMusicController()
         let appModel = AppModel(store: store)
         let musicModel = MusicPlaybackModel(controller: music)
+        appModel.voiceRecordings.prepareForAudio = { [weak musicModel] in
+            await musicModel?.pauseForVoiceRecording() ?? false
+        }
+        musicModel.beforeStartingPlayback = { [weak appModel] in
+            appModel?.voiceRecordings.stop()
+        }
         let metadataLookup: any TrackMetadataLookingUp = isAutomatedTesting
             ? UITestTrackMetadataService()
             : ITunesTrackMetadataService()
@@ -37,7 +43,12 @@ struct SingersLyricsApp: App {
         self.isUnitTestHost = isUnitTestHost
         applicationDelegate.configure(
             isUITesting: isUITesting,
-            suppressesMainWindow: isUnitTestHost
+            suppressesMainWindow: isUnitTestHost,
+            prepareToTerminate: {
+                appModel.voiceRecordings.stop()
+                await appModel.flush()
+                return !appModel.hasUnsavedChanges && !appModel.voiceRecordings.hasUncommittedRecording
+            }
         ) {
             AnyView(MainAppView(
                 appModel: appModel,
@@ -79,15 +90,19 @@ private final class SingersLyricsApplicationDelegate: NSObject, NSApplicationDel
     private var preferencesObserver: NSObjectProtocol?
     private var isUITesting = false
     private var suppressesMainWindow = false
+    private var prepareToTerminate: (() async -> Bool)?
+    private var isTerminating = false
 
     func configure(
         isUITesting: Bool,
         suppressesMainWindow: Bool,
+        prepareToTerminate: @escaping () async -> Bool,
         makeMainView: @escaping () -> AnyView
     ) {
         self.isUITesting = isUITesting
         self.suppressesMainWindow = suppressesMainWindow
         self.makeMainView = makeMainView
+        self.prepareToTerminate = prepareToTerminate
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -108,6 +123,26 @@ private final class SingersLyricsApplicationDelegate: NSObject, NSApplicationDel
             NotificationCenter.default.removeObserver(preferencesObserver)
         }
         preferencesObserver = nil
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let prepareToTerminate else { return .terminateNow }
+        guard !isTerminating else { return .terminateLater }
+        isTerminating = true
+        Task {
+            var canTerminate = await prepareToTerminate()
+            if !canTerminate {
+                let alert = NSAlert()
+                alert.messageText = "Some changes could not be saved"
+                alert.informativeText = "Keep the app open to preserve your edits and recordings, or quit without saving them."
+                alert.addButton(withTitle: "Keep Open")
+                alert.addButton(withTitle: "Quit Without Saving")
+                canTerminate = alert.runModal() == .alertSecondButtonReturn
+            }
+            isTerminating = false
+            sender.reply(toApplicationShouldTerminate: canTerminate)
+        }
+        return .terminateLater
     }
 
     private func updateAppearance() {
@@ -203,6 +238,12 @@ private struct AppRootView: View {
 
     var body: some View {
         ContentView(metadataLookup: metadataLookup)
+            .background {
+                RecordingWindowObserver {
+                    model.voiceRecordings.stop()
+                    Task { await model.flush() }
+                }
+            }
             .task {
                 await model.load()
                 await model.backfillLinkedTrackMetadata(using: metadataLookup)
@@ -211,10 +252,82 @@ private struct AppRootView: View {
                 guard phase != .active else { return }
                 Task { await model.flush() }
             }
+            .onDisappear {
+                model.voiceRecordings.stop()
+                Task { await model.flush() }
+            }
+            .alert("Voice Recording", isPresented: Binding(
+                get: { model.voiceRecordings.errorMessage != nil },
+                set: { if !$0 { model.voiceRecordings.errorMessage = nil } }
+            )) {
+                if model.voiceRecordings.hasUncommittedRecording {
+                    Button("Retry Saving") {
+                        Task { @MainActor in
+                            model.voiceRecordings.errorMessage = nil
+                            await Task.yield()
+                            model.voiceRecordings.finishRecording()
+                        }
+                    }
+                    Button("Discard Recording", role: .destructive) {
+                        model.voiceRecordings.cancelRecording()
+                        model.voiceRecordings.errorMessage = nil
+                    }
+                    Button("Keep for Later", role: .cancel) {
+                        model.voiceRecordings.errorMessage = nil
+                    }
+                } else {
+                    Button("OK", role: .cancel) { model.voiceRecordings.errorMessage = nil }
+                }
+            } message: {
+                Text(model.voiceRecordings.errorMessage ?? "")
+            }
             .onChange(of: playback.playbackStartEvent) { _, event in
                 guard let event else { return }
                 model.recordPlayback(songID: event.songID, at: event.startedAt)
             }
+    }
+}
+
+/// Window content can remain mounted after close; observe the owning window directly.
+private struct RecordingWindowObserver: NSViewRepresentable {
+    let onClose: () -> Void
+
+    func makeNSView(context: Context) -> CloseObserverView {
+        let view = CloseObserverView()
+        view.onClose = onClose
+        view.setAccessibilityElement(false)
+        return view
+    }
+
+    func updateNSView(_ view: CloseObserverView, context: Context) {
+        view.onClose = onClose
+    }
+
+    static func dismantleNSView(_ view: CloseObserverView, coordinator: Void) {
+        view.removeObserver()
+    }
+
+    final class CloseObserverView: NSView {
+        var onClose: (() -> Void)?
+        private var observer: NSObjectProtocol?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            removeObserver()
+            guard let window else { return }
+            observer = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.onClose?() }
+            }
+        }
+
+        func removeObserver() {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = nil
+        }
     }
 }
 

@@ -7,6 +7,7 @@ struct LyricsEditorView: View {
     @Binding var song: Song
 
     @Environment(MusicPlaybackModel.self) private var playback
+    @Environment(AppModel.self) private var appModel
     @Environment(\.undoManager) private var undoManager
     @State private var selectedLineIDs: Set<UUID> = []
     @State private var selectionAnchor: UUID?
@@ -23,6 +24,7 @@ struct LyricsEditorView: View {
     @State private var isTimingUndoGrouping = false
     @State private var pollingOwner = UUID()
     @State private var hoveredLineID: UUID?
+    @State private var recordingPickerLineID: UUID?
     @State private var editingToolbarHeight: CGFloat = 0
     @State private var timingPanelHeight: CGFloat = 168
     @AppStorage(PreferenceKey.defaultLyricsFontFamily) private var fallbackFontFamily = ""
@@ -167,6 +169,12 @@ struct LyricsEditorView: View {
         .onDisappear {
             resetShiftPreview()
             playback.stopPolling(owner: pollingOwner)
+            if appModel.voiceRecordings.recordingSongID == song.id {
+                appModel.voiceRecordings.finishRecording()
+            }
+            if appModel.voiceRecordings.playingSongID == song.id {
+                appModel.voiceRecordings.stopPlayback()
+            }
         }
         .sheet(isPresented: $showsSymbols) {
             SymbolPickerView(editingContext: editingContext)
@@ -252,7 +260,8 @@ struct LyricsEditorView: View {
     private func lineRow(line: LyricLine, index: Int) -> some View {
         lineCard(line: line, index: index)
             .overlay(alignment: .bottom) {
-                if hoveredLineID == line.id || editingLineID == line.id {
+                if hoveredLineID == line.id || editingLineID == line.id
+                    || recordingPickerLineID == line.id || voiceIsActive(for: line.id) {
                     lineControls(line: line, index: index)
                         .offset(y: lineControlOverlap)
                 }
@@ -356,11 +365,6 @@ struct LyricsEditorView: View {
                 selectTimingLine(line.id, modifiers: modifiers)
             }
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(selectedLineIDs.contains(line.id) ? Color.accentColor.opacity(0.45) : .clear)
-                .allowsHitTesting(false)
-        }
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
         .accessibilityLabel(
@@ -403,13 +407,48 @@ struct LyricsEditorView: View {
             Divider()
                 .frame(height: 12)
 
+            LineRecordingControls(
+                songID: song.id,
+                line: line,
+                lineNumber: index + 1,
+                showsPicker: Binding(
+                    get: { recordingPickerLineID == line.id },
+                    set: { recordingPickerLineID = $0 ? line.id : nil }
+                ),
+                onSelect: { recordingID in
+                    guard let index = song.lines.firstIndex(where: { $0.id == line.id }),
+                          song.lines[index].selectedRecording?.id != recordingID else { return }
+                    song.lines[index].selectedRecordingID = recordingID
+                },
+                onRename: { recordingID, name in
+                    editRecordings(line.id, actionName: "Rename Recording") { updated in
+                        guard let recordingIndex = updated.recordings.firstIndex(where: { $0.id == recordingID }) else { return }
+                        updated.recordings[recordingIndex].name = name
+                    }
+                },
+                onDelete: { recordingID in
+                    if appModel.voiceRecordings.playingRecordingID == recordingID {
+                        appModel.voiceRecordings.stopPlayback()
+                    }
+                    editRecordings(line.id, actionName: "Delete Recording") { updated in
+                        updated.recordings.removeAll { $0.id == recordingID }
+                        if updated.selectedRecordingID == recordingID {
+                            updated.selectedRecordingID = nil
+                        }
+                    }
+                }
+            )
+
+            Divider()
+                .frame(height: 12)
+
             Button(role: .destructive) {
                 deleteLines([line.id])
             } label: {
                 Image(systemName: "trash")
                     .frame(width: 24, height: 16)
             }
-            .help("Delete this lyric line")
+            .help("Delete this lyric line and move its recordings to Trash")
             .accessibilityLabel("Delete lyric line \(index + 1)")
             .accessibilityIdentifier("deleteLine-\(index)")
         }
@@ -720,6 +759,7 @@ struct LyricsEditorView: View {
     }
 
     private func beginTimingWorkspace() {
+        recordingPickerLineID = nil
         playback.stopPolling(owner: pollingOwner)
         editingContext.deactivate()
         selectedLineIDs.removeAll()
@@ -744,6 +784,9 @@ struct LyricsEditorView: View {
 
     private func reconcileLineSelection() {
         let validIDs = Set(song.lines.map(\.id))
+        if recordingPickerLineID.map(validIDs.contains) != true {
+            recordingPickerLineID = nil
+        }
         selectedLineIDs.formIntersection(validIDs)
         if selectionAnchor.map(validIDs.contains) != true {
             selectionAnchor = selectedLineIDs.first
@@ -913,6 +956,16 @@ struct LyricsEditorView: View {
             return
         }
 
+        let voice = appModel.voiceRecordings
+        if voice.recordingSongID == song.id,
+           voice.recordingLineID.map(ids.contains) == true {
+            voice.finishRecording()
+            guard !voice.hasUncommittedRecording else { return }
+        }
+        if voice.playingSongID == song.id,
+           voice.playingLineID.map(ids.contains) == true {
+            voice.stopPlayback()
+        }
         performLineEdit(actionName: ids.count == 1 ? "Delete Lyric Line" : "Delete Lyric Lines") {
             song.lines.removeAll { ids.contains($0.id) }
             selectedLineIDs.subtract(ids)
@@ -949,6 +1002,8 @@ struct LyricsEditorView: View {
             after: after,
             actionName: actionName,
             undoManager: undoManager,
+            prepareRestore: prepareLineSnapshotRestore,
+            currentSnapshot: { lineEditorSnapshot },
             apply: restoreLineEditorSnapshot
         )
     }
@@ -979,14 +1034,85 @@ struct LyricsEditorView: View {
         )
     }
 
+    private func prepareLineSnapshotRestore(_ snapshot: LyricsLineEditorSnapshot) -> Bool {
+        let voice = appModel.voiceRecordings
+        if voice.recordingSongID == song.id,
+           let lineID = voice.recordingLineID,
+           !snapshot.lines.contains(where: { $0.id == lineID }) {
+            // Complete the take before the inverse snapshot is collected, so Redo
+            // restores the line with the take that was running when Undo was chosen.
+            voice.finishRecording()
+            return !voice.hasUncommittedRecording
+        }
+        return true
+    }
+
     private func restoreLineEditorSnapshot(_ snapshot: LyricsLineEditorSnapshot) {
-        song.lines = snapshot.lines
+        // Structural undo must not erase takes captured after the snapshot.
+        // Audio edits register their own undo actions below.
+        let currentLines = Dictionary(uniqueKeysWithValues: song.lines.map { ($0.id, $0) })
+        song.lines = snapshot.lines.map { original in
+            var line = original
+            if let current = currentLines[line.id] {
+                line.recordings = current.recordings
+                line.selectedRecordingID = current.selectedRecordingID
+            }
+            return line
+        }
         selectedLineIDs = snapshot.selectedLineIDs
         selectionAnchor = snapshot.selectionAnchor
         targetID = snapshot.targetID
         editingLineID = snapshot.editingLineID
         requestedFocusLineID = snapshot.requestedFocusLineID
         requestedTypingStyle = snapshot.requestedTypingStyle
+    }
+
+    private func voiceIsActive(for lineID: UUID) -> Bool {
+        let voice = appModel.voiceRecordings
+        return (voice.recordingSongID == song.id && voice.recordingLineID == lineID)
+            || (voice.playingSongID == song.id && voice.playingLineID == lineID)
+    }
+
+    private func editRecordings(
+        _ lineID: UUID,
+        actionName: String,
+        mutation: (inout LyricLine) -> Void
+    ) {
+        guard let index = song.lines.firstIndex(where: { $0.id == lineID }) else { return }
+        let before = song.lines[index]
+        var after = before
+        mutation(&after)
+        guard before != after else { return }
+        song.lines[index] = after
+        guard let undoManager else { return }
+
+        let beforeByID = Dictionary(uniqueKeysWithValues: before.recordings.map { ($0.id, $0) })
+        let afterByID = Dictionary(uniqueKeysWithValues: after.recordings.map { ($0.id, $0) })
+        let changedIDs = Set(beforeByID.keys).union(afterByID.keys).filter {
+            beforeByID[$0] != afterByID[$0]
+        }
+        let restoresSelection = before.selectedRecordingID != after.selectedRecordingID
+        lineUndoController.register(
+            before: before,
+            after: after,
+            actionName: actionName,
+            undoManager: undoManager
+        ) { restored in
+            guard let index = song.lines.firstIndex(where: { $0.id == lineID }) else { return }
+            var updated = song.lines[index]
+            let restoredByID = Dictionary(uniqueKeysWithValues: restored.recordings.map { ($0.id, $0) })
+            let existingIDs = Set(updated.recordings.map(\.id))
+            updated.recordings = updated.recordings.compactMap { current in
+                changedIDs.contains(current.id) ? restoredByID[current.id] : current
+            }
+            updated.recordings.append(contentsOf: restored.recordings.filter {
+                changedIDs.contains($0.id) && !existingIDs.contains($0.id)
+            })
+            if restoresSelection {
+                updated.selectedRecordingID = restored.selectedRecordingID
+            }
+            song.lines[index] = updated
+        }
     }
 
     private var timingEditorSnapshot: LyricsTimingEditorSnapshot {
@@ -1340,6 +1466,8 @@ private final class LyricsLineUndoController {
         after: Snapshot,
         actionName: String,
         undoManager: UndoManager,
+        prepareRestore: ((Snapshot) -> Bool)? = nil,
+        currentSnapshot: (() -> Snapshot)? = nil,
         apply: @escaping (Snapshot) -> Void
     ) {
         registerRestore(
@@ -1347,6 +1475,8 @@ private final class LyricsLineUndoController {
             inverse: after,
             actionName: actionName,
             undoManager: undoManager,
+            prepareRestore: prepareRestore,
+            currentSnapshot: currentSnapshot,
             apply: apply
         )
         refresh(using: undoManager)
@@ -1371,14 +1501,34 @@ private final class LyricsLineUndoController {
         inverse: Snapshot,
         actionName: String,
         undoManager: UndoManager,
+        prepareRestore: ((Snapshot) -> Bool)?,
+        currentSnapshot: (() -> Snapshot)?,
         apply: @escaping (Snapshot) -> Void
     ) {
         undoManager.registerUndo(withTarget: self) { controller in
+            guard prepareRestore?(snapshot) ?? true else {
+                // Keep a retry action in history without applying a destructive
+                // edit when its in-progress recording could not be saved.
+                controller.registerRestore(
+                    snapshot,
+                    inverse: inverse,
+                    actionName: actionName,
+                    undoManager: undoManager,
+                    prepareRestore: prepareRestore,
+                    currentSnapshot: currentSnapshot,
+                    apply: apply
+                )
+                return
+            }
+            // Capture takes added since the original edit before removing a line,
+            // so redoing Add/Split can restore that line with its completed audio.
             controller.registerRestore(
-                inverse,
+                currentSnapshot?() ?? inverse,
                 inverse: snapshot,
                 actionName: actionName,
                 undoManager: undoManager,
+                prepareRestore: prepareRestore,
+                currentSnapshot: currentSnapshot,
                 apply: apply
             )
             apply(snapshot)
@@ -1407,7 +1557,7 @@ struct ImportLyricsSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Import Lyrics")
                 .font(.title2.bold())
-            Text("Paste plain lyrics with one lyric per line, or use LRC timestamps such as [00:12.34]. Importing replaces the current lyric lines.")
+            Text("Paste plain lyrics with one lyric per line, or use LRC timestamps such as [00:12.34]. Importing replaces the current lyric lines and moves their recordings to Trash.")
                 .foregroundStyle(.secondary)
 
             TextEditor(text: $source)

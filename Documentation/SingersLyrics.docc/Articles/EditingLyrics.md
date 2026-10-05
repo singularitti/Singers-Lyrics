@@ -22,11 +22,23 @@ On Mac, Command-click or Shift-click songs in the sidebar to select more than on
 
 Select lyric text to use bold, italic, underline, color, font, and symbol controls. Return splits a line and preserves its styled text. Annotations and timestamps remain associated with their lyric lines.
 
-On Mac, formatting continues to act on the last text selection when a toolbar control takes focus. Attribute-only changes synchronize to the song model. Structural changes share the native undo/redo history with formatting and timing edits. If a chosen font lacks a requested bold or italic face, the editor warns and leaves the text unchanged.
+On Mac, formatting continues to act on the last text selection when a toolbar control takes focus. Attribute-only changes synchronize to the song model. Structural changes share the native undo/redo history with formatting and timing edits. **Undo** and **Redo** are in the formatting bar, which appears while editing text or selecting multiple lyric lines; the same actions are available through **Edit > Undo** (Command-Z) and **Edit > Redo** (Shift-Command-Z). They are disabled when no matching history is available. If a chosen font lacks a requested bold or italic face, the editor warns and leaves the text unchanged.
 
 The mobile editor uses a native `UITextView` for each line. Formatting controls appear while editing lyric text, and a keyboard-dismissal action restores workspace space. It supports text formatting, annotations, symbols, line insertion and deletion, and styled line splitting.
 
 Unformatted text uses an adaptive foreground color. On Mac, use the native color panel for arbitrary sRGB colors and opacity; secondary-click the color well to restore the adaptive default. The codec preserves intentional color and font choices when transferring songs between platforms.
+
+### Record voice annotations on Mac
+
+Hover over a lyric line to reveal **Add | Record | Play | Delete**. Click Record to create a take, then click its Stop button to save. macOS asks for microphone permission on the first recording. A red elapsed-time indicator stays visible while recording, even after the pointer leaves the line.
+
+Play listens to the default take; recording, selecting, or playing another take makes it the default. The arrow beside Play opens a take picker with compact rounded rectangular cards. Each card shows the recording date and time, including seconds, and duration above an editable name, with **Play | Delete** beside the name. Click a card or focus its name to select it without starting playback. Opening the picker preserves the current selection. The selected card and selected lyric lines use an accent-tinted fill without a selection outline. Selecting a take does not add a navigation step to Undo history. This keeps everyday listening to one click while allowing multiple explanations or practice takes per line.
+
+Voice recording and listening pause active practice playback. Starting the song again finishes the voice take and stops voice playback. Changing songs or leaving the editor also finishes the take. Deleting a take or lyric line moves its recordings to the sidebar's **Trash**; a running take is finished first. Undo can restore completed takes until they are permanently deleted. Splitting a lyric leaves existing takes on the original line.
+
+Recordings stay local until you explicitly export the song document. Use the `.singerslyrics` format to transfer lyrics and audio together; LRC contains no audio. See <doc:LibraryAndDocuments> for the package layout and mobile support.
+
+In **Trash**, select one, several, or all recordings and choose **Restore Selected** to return them to their original lyrics. Missing lyric lines or songs are recreated from their saved context; existing lyrics and takes are preserved. Only lines associated with restored recordings are recreated, so this does not restore a complete deleted song. Choose **Delete Permanently** to remove selected files after confirmation. **Show in Finder** opens each recording's real file location. Trash survives restarts and is excluded from song exports.
 
 ### Set and adjust timing
 

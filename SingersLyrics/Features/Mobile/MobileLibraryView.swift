@@ -258,7 +258,7 @@ struct MobileLibraryView: View {
     private func importBundle(at url: URL) throws {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
-        let bundle = try SongBundleCodec.decode(Data(contentsOf: url))
+        let bundle = try SongBundleCodec.decode(contentsOf: url)
         if let id = model.importSongs(bundle.songs).first {
             search = ""
             favoritesOnly = false
