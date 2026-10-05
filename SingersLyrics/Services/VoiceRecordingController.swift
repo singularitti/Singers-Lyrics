@@ -48,11 +48,6 @@ final class VoiceRecordingController: NSObject {
 
     var hasUncommittedRecording: Bool { capture != nil }
 
-    func isActive(songID: UUID, lineID: UUID) -> Bool {
-        (recordingSongID == songID && recordingLineID == lineID)
-            || (playingSongID == songID && playingLineID == lineID)
-    }
-
     func record(songID: UUID, lineID: UUID, name: String) async {
         stopBeforeNextAction()
         // Preserve a completed file if an earlier read or delivery failed.

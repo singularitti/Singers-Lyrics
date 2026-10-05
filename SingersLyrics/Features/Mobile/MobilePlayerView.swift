@@ -135,7 +135,9 @@ struct MobilePlayerView: View {
     }
 
     private func transport(position: Double) -> some View {
-        VStack(spacing: 6) {
+        let duration = playback.duration(for: song)
+        let shownPosition = duration == nil ? nil : (isScrubbing ? scrubPosition : position)
+        return VStack(spacing: 6) {
             if !hasTiming {
                 Text("Add timing in Editor to follow the lyrics automatically.")
                     .font(.caption)
@@ -143,15 +145,15 @@ struct MobilePlayerView: View {
                     .multilineTextAlignment(.center)
             }
             HStack(spacing: 8) {
-                Text(formatTime(isScrubbing ? scrubPosition : position))
+                Text(formatPlaybackTime(shownPosition))
                     .font(.caption.monospacedDigit())
                     .frame(minWidth: 38, alignment: .leading)
                 Slider(value: Binding(
-                    get: { isScrubbing ? scrubPosition : min(position, max(0, playback.state.duration)) },
+                    get: { isScrubbing ? scrubPosition : min(position, duration ?? 0) },
                     set: { scrubPosition = $0 }
-                ), in: 0...max(1, playback.state.duration)) { editing in
+                ), in: 0...max(1, duration ?? 0)) { editing in
                     if editing {
-                        scrubPosition = min(position, max(0, playback.state.duration))
+                        scrubPosition = min(position, duration ?? 0)
                         isScrubbing = true
                     } else {
                         let destination = scrubPosition
@@ -159,63 +161,65 @@ struct MobilePlayerView: View {
                         perform { await playback.seek(song, to: destination) }
                     }
                 }
-                .disabled(playback.state.duration <= 0 || isPerformingAction)
+                .disabled(duration == nil || isPerformingAction)
                 .accessibilityLabel("Playback position")
-                .accessibilityValue(formatTime(isScrubbing ? scrubPosition : position))
-                Text(formatTime(playback.state.duration))
+                .accessibilityValue(formatPlaybackTime(shownPosition))
+                Text(formatPlaybackTime(duration))
                     .font(.caption.monospacedDigit())
                     .frame(minWidth: 38, alignment: .trailing)
             }
-            HStack(spacing: 8) {
-                Menu {
-                    Button("Smaller Lyrics", systemImage: "textformat.size.smaller") {
-                        lyricSize = max(24, lyricSize - 2)
+            HStack(spacing: 12) {
+                HStack(spacing: 4) {
+                    Button { lyricSize = max(24, lyricSize - 2) } label: {
+                        Image(systemName: "textformat.size.smaller").frame(width: 44, height: 44)
                     }
                     .disabled(lyricSize <= 24)
-                    Button("Larger Lyrics", systemImage: "textformat.size.larger") {
-                        lyricSize = min(64, lyricSize + 2)
+                    .accessibilityLabel("Smaller Lyrics")
+
+                    Button { lyricSize = min(64, lyricSize + 2) } label: {
+                        Image(systemName: "textformat.size.larger").frame(width: 44, height: 44)
                     }
                     .disabled(lyricSize >= 64)
-                } label: {
-                    Image(systemName: "textformat.size").frame(width: 44, height: 44)
+                    .accessibilityLabel("Larger Lyrics")
                 }
-                .accessibilityLabel("Lyric text size")
 
-                Button {
-                    perform { await playback.seek(song, to: max(0, position - 15)) }
-                } label: {
-                    Image(systemName: "gobackward.15").font(.title2).frame(width: 44, height: 44)
-                }
-                .disabled(playback.state.duration <= 0 || isPerformingAction)
-                .accessibilityLabel("Back 15 seconds")
-
-                Button {
-                    perform { await playback.togglePlayback(for: song) }
-                } label: {
-                    ZStack {
-                        if isPerformingAction {
-                            ProgressView().tint(.white)
-                        } else {
-                            Image(systemName: playback.isPlaying(song) ? "pause.fill" : "play.fill")
-                                .font(.title2)
-                        }
+                HStack(spacing: 8) {
+                    Button {
+                        perform { await playback.seek(song, to: max(0, position - 15)) }
+                    } label: {
+                        Image(systemName: "gobackward.15").font(.title2).frame(width: 44, height: 44)
                     }
-                    .frame(width: 56, height: 56)
-                    .foregroundStyle(.white)
-                    .background(.tint, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .disabled(isPerformingAction)
-                .accessibilityLabel(playback.isPlaying(song) ? "Pause" : "Play")
-                .accessibilityIdentifier("mobilePlayerPlayPause")
+                    .disabled(duration == nil || isPerformingAction)
+                    .accessibilityLabel("Back 15 seconds")
 
-                Button {
-                    perform { await playback.seek(song, to: min(playback.state.duration, position + 15)) }
-                } label: {
-                    Image(systemName: "goforward.15").font(.title2).frame(width: 44, height: 44)
+                    Button {
+                        perform { await playback.togglePlayback(for: song) }
+                    } label: {
+                        ZStack {
+                            if isPerformingAction {
+                                ProgressView().tint(.white)
+                            } else {
+                                Image(systemName: playback.isPlaying(song) ? "pause.fill" : "play.fill")
+                                    .font(.title2)
+                            }
+                        }
+                        .frame(width: 56, height: 56)
+                        .foregroundStyle(.white)
+                        .background(.tint, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isPerformingAction)
+                    .accessibilityLabel(playback.isPlaying(song) ? "Pause" : "Play")
+                    .accessibilityIdentifier("mobilePlayerPlayPause")
+
+                    Button {
+                        perform { await playback.seek(song, to: min(duration ?? 0, position + 15)) }
+                    } label: {
+                        Image(systemName: "goforward.15").font(.title2).frame(width: 44, height: 44)
+                    }
+                    .disabled(duration == nil || isPerformingAction)
+                    .accessibilityLabel("Forward 15 seconds")
                 }
-                .disabled(playback.state.duration <= 0 || isPerformingAction)
-                .accessibilityLabel("Forward 15 seconds")
 
                 Button { followRequest = UUID() } label: {
                     Image(systemName: autoFollow ? "location.fill" : "location")
@@ -227,8 +231,9 @@ struct MobilePlayerView: View {
             }
             .frame(maxWidth: .infinity)
         }
+        // Landscape and iPad keep the portrait iPhone width instead of stretching the slider.
+        .frame(maxWidth: 360)
         .padding(12)
-        .frame(maxWidth: 620)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
         .frame(maxWidth: .infinity)
     }

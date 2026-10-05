@@ -135,7 +135,7 @@ private struct MobileSongsTrashList: View {
         .overlay {
             if songs.isEmpty {
                 ContentUnavailableView {
-                    Label("No Deleted Songs", systemImage: "trash")
+                    Label("No Deleted Songs", systemImage: "music.note")
                 } description: {
                     Text("Restore songs with their lyrics and recordings, or delete them permanently.")
                 }

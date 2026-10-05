@@ -226,13 +226,7 @@ struct MobileLibraryView: View {
             }
             ForEach(songs) { song in
                 NavigationLink(value: MobileLibraryDestination.song(song.id)) {
-                    HStack(spacing: 12) {
-                        Image(systemName: song.isFavorite ? "heart.fill" : "music.note")
-                            .font(.title3)
-                            .foregroundStyle(song.isFavorite ? Color.pink : Color.accentColor)
-                            .frame(width: 38, height: 44)
-                            .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                            .accessibilityHidden(true)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(song.title.isEmpty ? "Untitled" : song.title)
                                 .font(.headline)
@@ -244,8 +238,16 @@ struct MobileLibraryView: View {
                                 Text(song.album).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
                         }
-                        .padding(.vertical, 4)
+                        Spacer(minLength: 0)
+                        // Titles stay aligned; only favorites carry a mark.
+                        if song.isFavorite {
+                            Image(systemName: "heart.fill")
+                                .font(.caption)
+                                .foregroundStyle(.pink)
+                                .accessibilityLabel("Favorite")
+                        }
                     }
+                    .padding(.vertical, 4)
                 }
                 .contextMenu {
                     Button(song.isFavorite ? "Remove Favorite" : "Favorite", systemImage: "heart") {

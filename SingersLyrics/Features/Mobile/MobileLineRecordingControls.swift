@@ -1,9 +1,10 @@
 #if os(iOS)
 import SwiftUI
 
-/// Voice actions for one lyric card. The take list expands inside the card, so
-/// recording and playback errors can still be presented by the library.
-struct MobileLineRecordingControls: View {
+/// Voice actions for one lyric card, sharing their row with the card's trailing
+/// accessory. The take list expands inside the card, so recording and playback
+/// errors can still be presented by the library.
+struct MobileLineRecordingControls<Accessory: View>: View {
     let songID: UUID
     let line: LyricLine
     let lineNumber: Int
@@ -11,6 +12,7 @@ struct MobileLineRecordingControls: View {
     let onSelect: (UUID) -> Void
     let onRename: (UUID, String) -> Void
     let onDelete: (UUID) -> Void
+    @ViewBuilder let accessory: () -> Accessory
 
     @Environment(AppModel.self) private var model
     @State private var renamingRecordingID: UUID?
@@ -32,10 +34,17 @@ struct MobileLineRecordingControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Larger text sizes keep every action by dropping the button titles.
+            // Larger text sizes shorten the take count, then give the accessory its own row.
             ViewThatFits(in: .horizontal) {
-                actions(showsTitles: true)
-                actions(showsTitles: false)
+                actionRow(showsTakeTitle: true)
+                actionRow(showsTakeTitle: false)
+                VStack(alignment: .leading, spacing: 8) {
+                    actions(showsTakeTitle: false)
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
+                        accessory()
+                    }
+                }
             }
 
             if showsTakes, !takes.isEmpty {
@@ -52,16 +61,27 @@ struct MobileLineRecordingControls: View {
         }
     }
 
-    private func actions(showsTitles: Bool) -> some View {
+    private func actionRow(showsTakeTitle: Bool) -> some View {
+        HStack(spacing: 8) {
+            actions(showsTakeTitle: showsTakeTitle)
+            Spacer(minLength: 0)
+            accessory()
+        }
+    }
+
+    /// Record and Play are icon-only; while a take is in progress, Record also shows
+    /// its status or elapsed time. The bordered style's padding brings each label
+    /// to a 44-point-high capsule.
+    private func actions(showsTakeTitle: Bool) -> some View {
         HStack(spacing: 8) {
             Button(action: toggleRecording) {
                 HStack(spacing: 6) {
                     Image(systemName: recordSymbol)
-                    if showsTitles || isRecording {
+                    if isRecording {
                         Text(recordTitle).monospacedDigit()
                     }
                 }
-                .frame(minHeight: 44)
+                .frame(minWidth: 20, minHeight: 30)
             }
             .tint(isRecording ? Color.red : nil)
             .accessibilityLabel(isRecording
@@ -71,13 +91,8 @@ struct MobileLineRecordingControls: View {
             .accessibilityIdentifier("mobileRecordLine-\(lineNumber - 1)")
 
             Button(action: togglePlayback) {
-                HStack(spacing: 6) {
-                    Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                    if showsTitles {
-                        Text(isPlaying ? "Stop" : "Play")
-                    }
-                }
-                .frame(minHeight: 44)
+                Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                    .frame(minWidth: 20, minHeight: 30)
             }
             .disabled(line.selectedRecording == nil && !isPlaying)
             .accessibilityLabel(isPlaying
@@ -85,18 +100,16 @@ struct MobileLineRecordingControls: View {
                 : "Play \(line.selectedRecording?.name ?? "recording") for lyric line \(lineNumber)")
             .accessibilityIdentifier("mobilePlayRecording-\(lineNumber - 1)")
 
-            Spacer(minLength: 0)
-
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { showsTakes.toggle() }
             } label: {
                 HStack(spacing: 6) {
-                    Text(showsTitles ? takeCountTitle : "\(takes.count)")
+                    Text(showsTakeTitle ? takeCountTitle : "\(takes.count)")
                         .monospacedDigit()
                     Image(systemName: "chevron.down")
                         .rotationEffect(.degrees(showsTakes ? 180 : 0))
                 }
-                .frame(minHeight: 44)
+                .frame(minHeight: 30)
             }
             .disabled(takes.isEmpty)
             .accessibilityLabel(showsTakes

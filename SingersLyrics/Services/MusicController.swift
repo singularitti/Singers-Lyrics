@@ -557,6 +557,13 @@ final class MusicPlaybackModel {
             && isAcceptedTargetState(state, target: PlaybackTarget(song: song))
     }
 
+    /// The song's length, once Music reports it for this song's track.
+    func duration(for song: Song) -> Double? {
+        guard state.duration > 0,
+              isAcceptedTargetState(state, target: PlaybackTarget(song: song)) else { return nil }
+        return state.duration
+    }
+
     func canSynchronize(_ song: Song) -> Bool {
         (state.state == .playing || state.state == .paused)
             && !state.permissionDenied

@@ -34,7 +34,7 @@ Unformatted text uses an adaptive foreground color. On Mac, use the native color
 
 On Mac, hover over a lyric line to reveal **Add | Record | Play | Delete**. Click Record to create a take, then click its Stop button to save. macOS asks for microphone permission on the first recording. A red elapsed-time indicator stays visible while recording, even after the pointer leaves the line.
 
-On iPhone and iPad, select a lyric card to reveal **Record**, **Play**, and a takes button below the lyric. Cards that already have takes keep these controls visible, so listening stays one tap away. Tap Record to create a take, then tap the red elapsed-time button to stop and save. iOS asks for microphone permission on the first recording; if access is denied, the error offers **Open Settings**.
+On iPhone and iPad, every lyric card shows the Record, Play, and takes buttons below the lyric, at the start of the row that ends with the line's timestamp and actions menu. Record and Play show icons only, and Play is available once the line has a take. Tap Record to create a take, then tap the red elapsed-time button to stop and save. iOS asks for microphone permission on the first recording; if access is denied, the error offers **Open Settings**.
 
 Play listens to the default take; recording, selecting, or playing another take makes it the default. On Mac, the arrow beside Play opens a take picker with compact rounded rectangular cards. Each card shows the recording date and time, including seconds, and duration above an editable name, with **Play | Delete** beside the name. Click a card or focus its name to select it without starting playback. Opening the picker preserves the current selection. The selected card and selected lyric lines use an accent-tinted fill without a selection outline. Selecting a take does not add a navigation step to Undo history. This keeps everyday listening to one click while allowing multiple explanations or practice takes per line.
 
@@ -58,11 +58,11 @@ On Mac, press the Space bar outside the text editor, or choose **Tap**, to stamp
 
 The Mac timing panel includes **Play from Line**, Pause, **Remove Timing**, and Cancel. It supports multiple selected lines, horizontal dragging, precise two-finger trackpad scrolling, and a jog wheel that previews adjustments. Compact layouts arrange adjustment, stamping, and delay controls vertically. Timing changes update the song, autosave, and participate in undo without replacing concurrent text edits.
 
-On iPhone and iPad, use the timing dock to stamp the selected line and advance. Open timing options for fine adjustments. The text keyboard and formatting controls adapt to the available space.
+On iPhone and iPad, the timing controls float above the lyrics. Tap **Stamp** to stamp the selected line and advance. Play/pause, **Clear Timestamp**, and timing options sit at the other end of the row, so rhythmic stamping can't pause the song. Drag the slider below them to move the selected line's timestamp up to half a second earlier or later; it shows the line's time and the shift as you drag. Selecting another line, stamping, or a timing-menu change starts a new adjustment from the line's current time. Open timing options for the stamp delay and 0.1-second adjustments. The text keyboard and formatting controls adapt to the available space.
 
 ### Follow lyrics during playback
 
-Switch to the player to present the lyrics. Select a lyric or use the playback slider to seek. Manual scrolling pauses automatic following. Starting playback, selecting a lyric, seeking, or using **Follow Current Lyric** on mobile resumes following.
+Switch to the player to present the lyrics. Select a lyric or use the playback slider to seek; its times show –:–– until Music reports the song's length. Manual scrolling pauses automatic following. Starting playback, selecting a lyric, seeking, or using **Follow Current Lyric** in the playback controls resumes following.
 
 The player can repeat the selected song when it finishes. If playback moves to an unrelated song, the shared playback model stops that playback and freezes lyric progress rather than assigning the new track's position to the selected lyrics.
 

@@ -26,13 +26,13 @@ When the library is empty or nothing is selected, one workspace-wide panel offer
 
 ### Present the mobile workspace
 
-On iPhone, launch shows the searchable **Music** library. Selecting a song opens its editor. The labeled **Player** button at the top right switches that song to presentation mode; **Editor** appears in the same location to return. These are screens in one navigation flow.
+On iPhone, launch shows the searchable **Music** library. Selecting a song opens its editor, which shows the title at the leading edge of the navigation bar, followed by the singer when both fit, like the Mac editor header. The player presents the title and singer above its lyrics instead. The labeled **Player** button at the top right switches that song to presentation mode; **Editor** appears in the same location to return. These are screens in one navigation flow.
 
 On iPad, the library and selected editor or player occupy two columns. The system sidebar control hides or reveals the library. Narrow multitasking windows use the phone navigation flow.
 
-The library ends with a **Trash** row whose badge counts deleted songs and recordings; it opens Trash as another detail destination. In the editor, the selected lyric card, and any card with takes, shows recording controls below its lyric, and the take list expands inside the card rather than in a sheet.
+The library ends with a **Trash** row whose badge counts deleted songs and recordings; it opens Trash as another detail destination. Song rows show text only, with a heart marking favorites. In the editor, each lyric card gives its annotation the full width. The row below the lyric starts with recording controls on every card and ends with the line's timestamp and actions menu. The take list expands inside the card rather than in a sheet. The editor's timing controls are floating Liquid Glass buttons without a bar background, so on iPad they stay beside the sidebar instead of extending beneath it.
 
-Playback controls are centered along the bottom of the detail view, above the home indicator. Text size, seeking, play/pause, and resume-following controls stay together. The mode switch remains in the navigation bar. Lyrics wrap to the available width, and the editor makes room for its keyboard and timing dock.
+Playback controls are centered along the bottom of the detail view, above the home indicator. Smaller and larger text, seeking, play/pause, and resume-following controls stay together, and keep the portrait iPhone width in landscape and on iPad. The mode switch remains in the navigation bar. Lyrics wrap to the available width, and the editor makes room for its keyboard and timing dock.
 
 ### Keep controls clear of content
 

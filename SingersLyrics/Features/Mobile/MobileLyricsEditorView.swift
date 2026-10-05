@@ -18,6 +18,7 @@ struct MobileLyricsEditorView: View {
     @State private var lyricEditorIsActive = false
     @State private var keyboardIsVisible = false
     @State private var transportActionInProgress = false
+    @State private var fineAdjustment: FineTimingAdjustment?
     @FocusState private var annotationFocus: UUID?
 
     private let delays = [0.0, 0.1, 0.2, 0.3, 0.5, 1.0]
@@ -54,10 +55,11 @@ struct MobileLyricsEditorView: View {
                 .padding(.bottom, 18)
             }
             .scrollDismissesKeyboard(.interactively)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .safeAreaBar(edge: .bottom, spacing: 0) {
                 timingDock
             }
             .onChange(of: selectedLineID) { _, id in
+                fineAdjustment = nil
                 guard let id else { return }
                 withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) }
             }
@@ -108,31 +110,6 @@ struct MobileLyricsEditorView: View {
                     .submitLabel(.done)
                     .onSubmit { annotationFocus = nil }
                     .accessibilityLabel("Line \(index + 1) annotation")
-
-                Button { selectedLineID = line.id } label: {
-                    Text(timestampText(line.timestampSeconds))
-                        .font(.caption.monospacedDigit().weight(.medium))
-                        .foregroundStyle(line.timestampSeconds == nil ? .tertiary : .secondary)
-                        .frame(minWidth: 50, minHeight: 44, alignment: .trailing)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(line.timestampSeconds.map { "Timestamp \(preciseTime($0))" } ?? "No timestamp")
-
-                Menu {
-                    Button("Insert Line Above", systemImage: "arrow.up.to.line") { addLine(before: line.id) }
-                    Button("Insert Line Below", systemImage: "arrow.down.to.line") { addLine(after: line.id) }
-                    Button("Clear Timestamp", systemImage: "clock.badge.xmark") { setTimestamp(nil, for: line.id) }
-                        .disabled(line.timestampSeconds == nil)
-                    Divider()
-                    Button("Delete Line", systemImage: "trash", role: .destructive) { deleteLine(line.id) }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Line actions")
             }
 
             MobileRichTextEditor(
@@ -160,23 +137,47 @@ struct MobileLyricsEditorView: View {
             .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
             .overlay {
                 RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(selectedLineID == line.id ? Color.accentColor.opacity(0.5) : Color(uiColor: .separator).opacity(0.28), lineWidth: selectedLineID == line.id ? 1.5 : 0.7)
+                    .strokeBorder(selectedLineID == line.id ? Color.accentColor.opacity(0.5) : Color(uiColor: .separator), lineWidth: selectedLineID == line.id ? 1.5 : 1)
             }
             .accessibilityIdentifier("mobileLyricEditor-\(index)")
 
-            if showsRecordingControls(for: line) {
-                MobileLineRecordingControls(
-                    songID: song.id,
-                    line: line,
-                    lineNumber: index + 1,
-                    showsTakes: Binding(
-                        get: { expandedTakesLineID == line.id },
-                        set: { expandedTakesLineID = $0 ? line.id : nil }
-                    ),
-                    onSelect: { selectRecording($0, on: line.id) },
-                    onRename: { renameRecording($0, on: line.id, to: $1) },
-                    onDelete: { deleteRecording($0, from: line.id) }
-                )
+            // The timestamp and line menu share the voice row, so the annotation gets the full width.
+            MobileLineRecordingControls(
+                songID: song.id,
+                line: line,
+                lineNumber: index + 1,
+                showsTakes: Binding(
+                    get: { expandedTakesLineID == line.id },
+                    set: { expandedTakesLineID = $0 ? line.id : nil }
+                ),
+                onSelect: { selectRecording($0, on: line.id) },
+                onRename: { renameRecording($0, on: line.id, to: $1) },
+                onDelete: { deleteRecording($0, from: line.id) }
+            ) {
+                Button { selectedLineID = line.id } label: {
+                    Text(timestampText(line.timestampSeconds))
+                        .font(.caption.monospacedDigit().weight(.medium))
+                        .foregroundStyle(line.timestampSeconds == nil ? .tertiary : .secondary)
+                        .frame(minWidth: 50, minHeight: 44, alignment: .trailing)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(line.timestampSeconds.map { "Timestamp \(preciseTime($0))" } ?? "No timestamp")
+
+                Menu {
+                    Button("Insert Line Above", systemImage: "arrow.up.to.line") { addLine(before: line.id) }
+                    Button("Insert Line Below", systemImage: "arrow.down.to.line") { addLine(after: line.id) }
+                    Button("Clear Timestamp", systemImage: "clock.badge.xmark") { setTimestamp(nil, for: line.id) }
+                        .disabled(line.timestampSeconds == nil)
+                    Divider()
+                    Button("Delete Line", systemImage: "trash", role: .destructive) { deleteLine(line.id) }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Line actions")
             }
         }
         .padding(10)
@@ -256,77 +257,147 @@ struct MobileLyricsEditorView: View {
         )
     }
 
+    /// Floating Liquid Glass controls without a bar background, so on iPad they stop
+    /// at the sidebar; the safe-area bar's scroll edge effect keeps them legible.
     private var timingDock: some View {
-        VStack(spacing: 4) {
-            if keyboardIsVisible || lyricEditorIsActive {
-                HStack(spacing: 4) {
-                    if lyricEditorIsActive { formattingBar }
-                    Spacer(minLength: 0)
-                    Button("Done") { dismissKeyboard() }
-                        .font(.subheadline.weight(.semibold))
-                        .frame(minWidth: 56, minHeight: 44)
-                }
-            } else {
-                HStack(spacing: 8) {
-                    Button(action: stampSelectedLine) {
-                        Label(stampLabel, systemImage: "clock.badge.checkmark")
-                            .font(.subheadline.weight(.semibold))
-                            .monospacedDigit()
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(selectedLineID == nil || !isPlaybackReady)
-                    .accessibilityIdentifier("mobileStampTimingButton")
-
-                    Button {
-                        guard !transportActionInProgress else { return }
-                        transportActionInProgress = true
-                        Task {
-                            await playback.togglePlayback(for: song)
-                            transportActionInProgress = false
+        GlassEffectContainer {
+            VStack(spacing: 8) {
+                if keyboardIsVisible || lyricEditorIsActive {
+                    HStack(spacing: 8) {
+                        if lyricEditorIsActive {
+                            formattingBar
+                                .glassEffect(in: .capsule)
                         }
-                    } label: {
-                        Image(systemName: playback.isPlaying(song) ? "pause.fill" : "play.fill")
-                            .frame(width: 48, height: 48)
+                        Spacer(minLength: 0)
+                        Button { dismissKeyboard() } label: {
+                            Text("Done")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(minHeight: 30)
+                        }
+                        .buttonStyle(.glass)
                     }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel(playback.isPlaying(song) ? "Pause playback" : "Play playback")
-                    .disabled(!canStartPlayback || transportActionInProgress)
-
-                    Menu {
-                        Picker("Stamp delay", selection: $delay) {
-                            ForEach(delays, id: \.self) { option in
-                                Text(String(format: "%.1f seconds", option)).tag(option)
+                } else {
+                    // Play stays away from Stamp, so rhythmic stamping can't pause the song.
+                    HStack(spacing: 8) {
+                        Button {
+                            guard !transportActionInProgress else { return }
+                            transportActionInProgress = true
+                            Task {
+                                await playback.togglePlayback(for: song)
+                                transportActionInProgress = false
                             }
+                        } label: {
+                            Image(systemName: playback.isPlaying(song) ? "pause.fill" : "play.fill")
+                                .frame(width: 30, height: 30)
                         }
-                        Divider()
-                        Button("Adjust −0.1 seconds") { adjustSelectedTimestamp(by: -0.1) }
-                        Button("Adjust +0.1 seconds") { adjustSelectedTimestamp(by: 0.1) }
-                        Button("Clear Timestamp", systemImage: "clock.badge.xmark") {
+                        .accessibilityLabel(playback.isPlaying(song) ? "Pause playback" : "Play playback")
+                        .disabled(!canStartPlayback || transportActionInProgress)
+
+                        Button {
                             if let id = selectedLineID { setTimestamp(nil, for: id) }
+                        } label: {
+                            Image(systemName: "clock.badge.xmark")
+                                .frame(width: 30, height: 30)
                         }
                         .disabled(selectedLine?.timestampSeconds == nil)
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .frame(width: 48, height: 48)
-                            .contentShape(Rectangle())
+                        .accessibilityLabel("Clear Timestamp")
+                        .accessibilityIdentifier("mobileClearTimestampButton")
+
+                        Menu {
+                            Picker("Stamp delay", selection: $delay) {
+                                ForEach(delays, id: \.self) { option in
+                                    Text(String(format: "%.1f seconds", option)).tag(option)
+                                }
+                            }
+                            Divider()
+                            Button("Adjust −0.1 seconds") { adjustSelectedTimestamp(by: -0.1) }
+                            Button("Adjust +0.1 seconds") { adjustSelectedTimestamp(by: 0.1) }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .frame(width: 30, height: 30)
+                        }
+                        .accessibilityLabel("More timing actions")
+
+                        Spacer(minLength: 8)
+
+                        Button(action: stampSelectedLine) {
+                            Label(stampLabel, systemImage: "clock.badge.checkmark")
+                                .font(.subheadline.weight(.semibold))
+                                .monospacedDigit()
+                                .frame(minHeight: 30)
+                        }
+                        .buttonStyle(.glassProminent)
+                        .buttonBorderShape(.capsule)
+                        .disabled(selectedLineID == nil || !isPlaybackReady)
+                        .accessibilityIdentifier("mobileStampTimingButton")
                     }
-                    .accessibilityLabel("More timing actions")
-                }
-                if let selectedLine {
-                    Text("Line \((song.lines.firstIndex(where: { $0.id == selectedLine.id }) ?? 0) + 1) · \(preciseTime(selectedLine.timestampSeconds))")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, 4)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+
+                    if let selectedLine {
+                        fineTimingControl(for: selectedLine)
+                    }
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 6)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) { Rectangle().fill(Color(uiColor: .separator).opacity(0.35)).frame(height: 0.5) }
+        .frame(maxWidth: 520)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
+    /// Shifts the selected line's timestamp by up to half a second either way,
+    /// complementing the stamp delay and 0.1-second steps in the timing menu.
+    private func fineTimingControl(for line: LyricLine) -> some View {
+        let lineNumber = (song.lines.firstIndex(where: { $0.id == line.id }) ?? 0) + 1
+        let shift = fineTimingShift
+        return HStack(spacing: 12) {
+            timingReadout("Line \(lineNumber)", value: preciseTime(line.timestampSeconds), template: "000.00", alignment: .leading)
+            Slider(
+                value: Binding(
+                    get: { activeFineAdjustment?.offset ?? 0 },
+                    set: { setFineTimingOffset($0) }
+                ),
+                in: -0.5...0.5,
+                neutralValue: 0
+            ) {
+                Text("Fine timing adjustment")
+            }
+            timingReadout("Shift", value: shiftText(shift), template: "−0.00", alignment: .trailing, isHighlighted: shift != 0)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 6)
+        .glassEffect(in: .capsule)
+        .disabled(line.timestampSeconds == nil)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Fine timing adjustment")
+        .accessibilityValue(line.timestampSeconds.map {
+            "Line \(lineNumber) at \(preciseTime($0)) seconds" + (shift == 0 ? "" : ", shifted \(shiftText(shift)) seconds")
+        } ?? "Line \(lineNumber) has no timestamp")
+        .accessibilityAdjustableAction { direction in
+            setFineTimingOffset((activeFineAdjustment?.offset ?? 0) + (direction == .increment ? 0.1 : -0.1))
+        }
+        .accessibilityIdentifier("mobileFineTimingSlider")
+    }
+
+    private func timingReadout(
+        _ title: String,
+        value: String,
+        template: String,
+        alignment: HorizontalAlignment,
+        isHighlighted: Bool = false
+    ) -> some View {
+        VStack(alignment: alignment, spacing: 1) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            // The template reserves the widest value, so the slider keeps its width while dragging.
+            ZStack(alignment: Alignment(horizontal: alignment, vertical: .center)) {
+                Text(template).hidden()
+                Text(value).foregroundStyle(isHighlighted ? Color.accentColor : Color.primary)
+            }
+            .font(.caption.monospacedDigit().weight(.medium))
+        }
+        .lineLimit(1)
     }
 
     private var symbolSheet: some View {
@@ -356,6 +427,18 @@ struct MobileLyricsEditorView: View {
     private var selectedLine: LyricLine? {
         guard let selectedLineID else { return nil }
         return song.lines.first(where: { $0.id == selectedLineID })
+    }
+
+    /// The slider's adjustment while the selected line still has the time it set.
+    private var activeFineAdjustment: FineTimingAdjustment? {
+        guard let fineAdjustment, fineAdjustment.lineID == selectedLineID,
+              let timestamp = selectedLine?.timestampSeconds,
+              abs(timestamp - fineAdjustment.adjustedSeconds) < 0.0005 else { return nil }
+        return fineAdjustment
+    }
+
+    private var fineTimingShift: Double {
+        activeFineAdjustment.map { $0.adjustedSeconds - $0.originalSeconds } ?? 0
     }
 
     private var isPlaybackReady: Bool {
@@ -455,11 +538,6 @@ struct MobileLyricsEditorView: View {
         updateLine(id) { $0.timestampSeconds = seconds.map { max(0, $0) } }
     }
 
-    private func showsRecordingControls(for line: LyricLine) -> Bool {
-        selectedLineID == line.id || !line.recordings.isEmpty
-            || model.voiceRecordings.isActive(songID: song.id, lineID: line.id)
-    }
-
     private func selectRecording(_ recordingID: UUID, on lineID: UUID) {
         guard let index = song.lines.firstIndex(where: { $0.id == lineID }),
               song.lines[index].selectedRecording?.id != recordingID else { return }
@@ -496,6 +574,20 @@ struct MobileLyricsEditorView: View {
         setTimestamp(max(0, timestamp + amount), for: line.id)
     }
 
+    /// The slider offset is measured from the line's time before its first move.
+    /// Stamping, the timing menu, or selecting another line starts a new adjustment.
+    private func setFineTimingOffset(_ value: Double) {
+        guard let line = selectedLine, let timestamp = line.timestampSeconds else { return }
+        // Centisecond steps match the displayed precision and keep a zero shift reachable.
+        let offset = min(0.5, max(-0.5, (value * 100).rounded() / 100))
+        var adjustment = activeFineAdjustment
+            ?? FineTimingAdjustment(lineID: line.id, originalSeconds: timestamp, offset: 0)
+        guard adjustment.offset != offset else { return }
+        adjustment.offset = offset
+        fineAdjustment = adjustment
+        setTimestamp(adjustment.adjustedSeconds, for: line.id)
+    }
+
     private func dismissKeyboard() {
         annotationFocus = nil
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -506,6 +598,20 @@ struct MobileLyricsEditorView: View {
     private func preciseTime(_ value: Double?) -> String {
         guard let value else { return "—" }
         return String(format: "%.2f", value)
+    }
+
+    private func shiftText(_ value: Double) -> String {
+        let centiseconds = Int((value * 100).rounded())
+        guard centiseconds != 0 else { return "0.00" }
+        return (centiseconds > 0 ? "+" : "−") + String(format: "%.2f", Double(abs(centiseconds)) / 100)
+    }
+
+    private struct FineTimingAdjustment {
+        let lineID: UUID
+        let originalSeconds: Double
+        var offset: Double
+
+        var adjustedSeconds: Double { max(0, originalSeconds + offset) }
     }
 }
 #endif

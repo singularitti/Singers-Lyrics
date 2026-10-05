@@ -279,9 +279,10 @@ struct PlayerView: View {
     }
 
     private func transport(position: Double) -> some View {
-        VStack(spacing: 10) {
+        let duration = playback.duration(for: song)
+        return VStack(spacing: 10) {
             HStack(spacing: 8) {
-                Text(formatTime(isScrubbing ? scrubPosition : position))
+                Text(formatPlaybackTime(duration == nil ? nil : (isScrubbing ? scrubPosition : position)))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .frame(width: 44, alignment: .leading)
@@ -289,10 +290,10 @@ struct PlayerView: View {
 
                 Slider(
                     value: Binding(
-                        get: { isScrubbing ? scrubPosition : min(position, max(0, playback.state.duration)) },
+                        get: { isScrubbing ? scrubPosition : min(position, duration ?? 0) },
                         set: { scrubPosition = $0 }
                     ),
-                    in: 0...max(1, playback.state.duration),
+                    in: 0...max(1, duration ?? 0),
                     onEditingChanged: { editing in
                         if editing {
                             scrubPosition = position
@@ -311,7 +312,7 @@ struct PlayerView: View {
                 .layoutPriority(1)
                 .accessibilityIdentifier("playbackSlider")
 
-                Text(formatTime(playback.state.duration))
+                Text(formatPlaybackTime(duration))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .frame(width: 44, alignment: .trailing)
@@ -348,6 +349,17 @@ struct PlayerView: View {
                 .controlSize(.large)
                 .accessibilityLabel(playback.isPlaying(song) ? "Pause" : "Play")
                 .accessibilityIdentifier("playerPlayPauseButton")
+
+                Button {
+                    followRequest = UUID()
+                } label: {
+                    Image(systemName: autoFollow ? "location.fill" : "location")
+                }
+                .disabled(!hasTiming)
+                .help("Follow Current Lyric")
+                .accessibilityLabel("Follow Current Lyric")
+                .accessibilityValue(autoFollow ? "Following" : "Paused while scrolling")
+                .accessibilityIdentifier("followCurrentLyricButton")
             }
             .fixedSize(horizontal: true, vertical: false)
             .frame(maxWidth: .infinity, alignment: .center)

@@ -700,3 +700,8 @@ func formatTime(_ seconds: Double?) -> String {
     let remainder = Int(clamped) % 60
     return String(format: "%d:%02d", minutes, remainder)
 }
+
+/// Player transport times use –:–– until playback reports the song's length.
+func formatPlaybackTime(_ seconds: Double?) -> String {
+    seconds.map(formatTime) ?? "–:––"
+}

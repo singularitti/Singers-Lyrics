@@ -34,7 +34,15 @@ struct MobileSongWorkspace: View {
         }
         .navigationTitle(song.title.isEmpty ? "Untitled" : song.title)
         .navigationBarTitleDisplayMode(.inline)
+        // As in the Mac header: a leading title and singer in the editor, and no bar
+        // title over the player, which presents its own.
+        .toolbar(removing: mode == .player ? .title : nil)
         .toolbar {
+            if mode == .editor {
+                ToolbarItem(placement: .principal) {
+                    MobileSongTitle(song: song)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     UIApplication.shared.sendAction(
@@ -115,6 +123,34 @@ struct MobileSongWorkspace: View {
 
     private func updatePolling() {
         playback.startPolling(owner: pollingOwner, for: song, repeatsWhenFinished: mode == .player)
+    }
+}
+
+/// The singer follows the title only when both fit, like the Mac editor header.
+private struct MobileSongTitle: View {
+    let song: Song
+
+    private var title: String { song.title.isEmpty ? "Untitled" : song.title }
+    private var singer: String { song.artist.isEmpty ? "Unknown Singer" : song.artist }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                Text(title).font(.headline)
+                Text(" | ").foregroundStyle(.tertiary)
+                Text(singer).foregroundStyle(.secondary)
+            }
+            Text(title).font(.headline)
+        }
+        .lineLimit(1)
+        // Leading toolbar items are kept narrow, so the title uses the centered slot. A large
+        // ideal width makes the bar give it all the room between its buttons; aligning it
+        // to the leading edge of that room keeps it beside the back button instead of centered.
+        .frame(idealWidth: 10_000, maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title), \(singer)")
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityIdentifier("mobileSongTitle")
     }
 }
 
