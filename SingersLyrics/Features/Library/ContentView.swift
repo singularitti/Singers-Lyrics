@@ -314,7 +314,7 @@ struct ContentView: View {
             ProgressView("Opening Library…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.isShowingRecordingTrash {
-            RecordingsTrashView()
+            TrashView()
         } else if let song = selectedSong,
                   let songBinding = model.bindingForSelectedSong() {
             switch workspaceLayout {
@@ -432,7 +432,7 @@ struct ContentView: View {
                     .font(.body.weight(.regular))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(model.library.trashedRecordings.count, format: .number)
+                Text(model.trashedItemCount, format: .number)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
@@ -440,7 +440,7 @@ struct ContentView: View {
             .textCase(nil)
             .sidebarSectionHeaderRow()
             .tag(SidebarDestination.recordingTrash)
-            .accessibilityLabel("Trash, \(model.library.trashedRecordings.count) recordings")
+            .accessibilityLabel("Trash, \(model.library.trashedSongs.count) songs, \(model.recordingsInTrash.count) recordings")
             .accessibilityIdentifier("recordingTrashSidebarItem")
         }
         .contextMenu(forSelectionType: SidebarDestination.self) { destinations in
@@ -923,13 +923,13 @@ struct ContentView: View {
 
     private var deleteConfirmationMessage: String {
         if songIDsToDelete.count > 1 {
-            return "\(songIDsToDelete.count) songs and their lyrics will be permanently removed. Their voice recordings will move to Trash."
+            return "\(songIDsToDelete.count) songs will move to Trash with all their lyrics and recordings. You can restore them from the Songs tab in Trash."
         }
         let title = songIDsToDelete.first
             .flatMap { model.song(withID: $0)?.title }
             .flatMap { $0.isEmpty ? nil : $0 }
             ?? "Untitled"
-        return "“\(title)” and its lyrics will be permanently removed. Its voice recordings will move to Trash."
+        return "“\(title)” will move to Trash with all its lyrics and recordings. You can restore it from the Songs tab in Trash."
     }
 
     @ViewBuilder

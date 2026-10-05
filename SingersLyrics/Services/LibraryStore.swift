@@ -117,6 +117,7 @@ actor JSONLibraryStore: LibraryStoring {
             }
             try RecordingAssetStorage.hydrate(songs: &document.songs, read: read)
             try RecordingAssetStorage.hydrate(trash: &document.trashedRecordings, read: read)
+            try RecordingAssetStorage.hydrate(songTrash: &document.trashedSongs, read: read)
             knownStoredAssets = Dictionary(uniqueKeysWithValues:
                 RecordingAssetStorage.assets(in: document).map {
                     ($0.components.joined(separator: "/"), $0.data)
@@ -176,6 +177,7 @@ actor JSONLibraryStore: LibraryStoring {
         RecordingAssetStorage.removeUnreferencedAssets(
             songs: document.songs,
             retainedTrash: document.trashedRecordings,
+            retainedSongTrash: document.trashedSongs,
             baseURL: directory,
             fileManager: fileManager
         )
@@ -223,14 +225,23 @@ actor JSONLibraryStore: LibraryStoring {
     }
 
     private func updateCommittedRecordings(from document: LibraryDocument) {
-        committedPendingRecordings = Dictionary(uniqueKeysWithValues:
-            document.trashedRecordings.filter(\.isPendingPermanentDeletion).map {
+        var pending: [(UUID, RecordingIdentity)] = document.trashedRecordings
+            .filter(\.isPendingPermanentDeletion).map {
                 ($0.id, RecordingIdentity(songID: $0.songID, lineID: $0.lineID))
             }
-        )
-        committedActiveRecordingIDs = Set(document.songs.flatMap { song in
+        for trashed in document.trashedSongs where trashed.isPendingPermanentDeletion {
+            for line in trashed.song.lines {
+                pending += line.recordings.map {
+                    ($0.id, RecordingIdentity(songID: trashed.id, lineID: line.id))
+                }
+            }
+        }
+        committedPendingRecordings = Dictionary(uniqueKeysWithValues: pending)
+        let protectedSongs = document.songs
+            + document.trashedSongs.filter { !$0.isPendingPermanentDeletion }.map(\.song)
+        committedActiveRecordingIDs = Set(protectedSongs.flatMap { song in
             song.lines.flatMap { $0.recordings.map(\.id) }
-        })
+        }).union(document.trashedRecordings.filter { !$0.isPendingPermanentDeletion }.map(\.id))
     }
 }
 
@@ -271,8 +282,23 @@ enum RecordingAssetStorage {
     }
 
     static func validate(document: LibraryDocument, requireAudio: Bool) throws {
-        try validate(songs: document.songs, requireAudio: requireAudio)
-        var recordingIDs = Set(document.songs.flatMap { song in
+        let allSongs = document.songs + document.trashedSongs.map(\.song)
+        // Pending song entries retain their metadata, but their audio may already
+        // have been unlinked by an interrupted permanent deletion.
+        try validate(songs: allSongs, requireAudio: false)
+        if requireAudio {
+            try validate(
+                songs: document.songs
+                    + document.trashedSongs.filter { !$0.isPendingPermanentDeletion }.map(\.song),
+                requireAudio: true
+            )
+        }
+        for trashed in document.trashedSongs {
+            guard trashed.deletedAt.timeIntervalSince1970.isFinite, trashed.originalIndex >= 0 else {
+                throw RecordingAssetError.invalidRecording
+            }
+        }
+        var recordingIDs = Set(allSongs.flatMap { song in
             song.lines.flatMap { $0.recordings.map(\.id) }
         })
         for trashed in document.trashedRecordings {
@@ -325,7 +351,9 @@ enum RecordingAssetStorage {
     }
 
     static func assets(in document: LibraryDocument) -> [Asset] {
-        assets(in: document.songs) + document.trashedRecordings
+        let retainedSongs = document.songs
+            + document.trashedSongs.filter { !$0.isPendingPermanentDeletion }.map(\.song)
+        return assets(in: retainedSongs) + document.trashedRecordings
             .filter { !$0.isPendingPermanentDeletion }
             .map { trashed in
                 Asset(
@@ -370,21 +398,40 @@ enum RecordingAssetStorage {
     }
 
     static func hydrate(
+        songTrash: inout [TrashedSong],
+        read: ([String]) throws -> Data
+    ) throws {
+        for index in songTrash.indices {
+            if songTrash[index].isPendingPermanentDeletion {
+                for lineIndex in songTrash[index].song.lines.indices {
+                    for recordingIndex in songTrash[index].song.lines[lineIndex].recordings.indices {
+                        songTrash[index].song.lines[lineIndex].recordings[recordingIndex].audioData = Data()
+                    }
+                }
+            } else {
+                try hydrate(song: &songTrash[index].song, read: read)
+            }
+        }
+    }
+
+    static func hydrate(
         songs: inout [Song],
         read: ([String]) throws -> Data
     ) throws {
         for songIndex in songs.indices {
-            for lineIndex in songs[songIndex].lines.indices {
-                for recordingIndex in songs[songIndex].lines[lineIndex].recordings.indices {
-                    let recordingID = songs[songIndex].lines[lineIndex].recordings[recordingIndex].id
-                    let data = try read(components(
-                        songID: songs[songIndex].id,
-                        lineID: songs[songIndex].lines[lineIndex].id,
-                        recordingID: recordingID
-                    ))
-                    guard !data.isEmpty else { throw RecordingAssetError.invalidAsset }
-                    songs[songIndex].lines[lineIndex].recordings[recordingIndex].audioData = data
-                }
+            try hydrate(song: &songs[songIndex], read: read)
+        }
+    }
+
+    private static func hydrate(song: inout Song, read: ([String]) throws -> Data) throws {
+        for lineIndex in song.lines.indices {
+            for recordingIndex in song.lines[lineIndex].recordings.indices {
+                let recordingID = song.lines[lineIndex].recordings[recordingIndex].id
+                let data = try read(components(
+                    songID: song.id, lineID: song.lines[lineIndex].id, recordingID: recordingID
+                ))
+                guard !data.isEmpty else { throw RecordingAssetError.invalidAsset }
+                song.lines[lineIndex].recordings[recordingIndex].audioData = data
             }
         }
     }
@@ -455,10 +502,13 @@ enum RecordingAssetStorage {
     static func removeUnreferencedAssets(
         songs: [Song],
         retainedTrash: [TrashedRecording] = [],
+        retainedSongTrash: [TrashedSong] = [],
         baseURL: URL,
         fileManager: FileManager
     ) {
-        var referenced = Set(assets(in: songs).map { $0.components.joined(separator: "/") })
+        var referenced = Set(assets(in: songs + retainedSongTrash.map(\.song)).map {
+            $0.components.joined(separator: "/")
+        })
         for trashed in retainedTrash {
             referenced.insert(components(
                 songID: trashed.songID, lineID: trashed.lineID, recordingID: trashed.id
@@ -582,12 +632,24 @@ actor InMemoryLibraryStore: LibraryStoring {
     }
 
     func permanentlyDeleteRecording(_ recording: TrashedRecording) async throws {
+        let individuallyPending = document.trashedRecordings.contains {
+            $0.id == recording.id && $0.songID == recording.songID
+                && $0.lineID == recording.lineID && $0.isPendingPermanentDeletion
+        }
+        let pendingInSong = document.trashedSongs.contains { trashed in
+            trashed.id == recording.songID && trashed.isPendingPermanentDeletion
+                && trashed.song.lines.contains { line in
+                    line.id == recording.lineID && line.recordings.contains { $0.id == recording.id }
+                }
+        }
+        let protectedSongs = document.songs
+            + document.trashedSongs.filter { !$0.isPendingPermanentDeletion }.map(\.song)
         guard recording.isPendingPermanentDeletion,
-              document.trashedRecordings.contains(where: {
-                  $0.id == recording.id && $0.songID == recording.songID
-                      && $0.lineID == recording.lineID && $0.isPendingPermanentDeletion
+              individuallyPending || pendingInSong,
+              !document.trashedRecordings.contains(where: {
+                  $0.id == recording.id && !$0.isPendingPermanentDeletion
               }),
-              !document.songs.contains(where: { song in
+              !protectedSongs.contains(where: { song in
                   song.lines.contains { line in
                       line.recordings.contains { $0.id == recording.id }
                   }

@@ -18,6 +18,8 @@ Change the displayed title or singer from the song's management controls. Replac
 
 On Mac, Command-click or Shift-click songs in the sidebar to select more than one song for deletion, duplication, or export. On iPhone and iPad, use the editor's song options menu for song details, link replacement, lyric import, and export. See <doc:LibraryAndDocuments> for transfer formats.
 
+Deleting a song moves the complete song to **Trash**, including every lyric line and its recordings. On Mac, open Trash's **Songs** tab and choose **Restore Selected** to recover the song with its metadata, formatting, annotations, timestamps, track link, favorites, and tags. Songs without recordings are also retained, and restoration remains available after restarting the app.
+
 ### Edit and format lyrics
 
 Select lyric text to use bold, italic, underline, color, font, and symbol controls. Return splits a line and preserves its styled text. Annotations and timestamps remain associated with their lyric lines.
@@ -38,7 +40,11 @@ Voice recording and listening pause active practice playback. Starting the song 
 
 Recordings stay local until you explicitly export the song document. Use the `.singerslyrics` format to transfer lyrics and audio together; LRC contains no audio. See <doc:LibraryAndDocuments> for the package layout and mobile support.
 
-In **Trash**, select one, several, or all recordings and choose **Restore Selected** to return them to their original lyrics. Missing lyric lines or songs are recreated from their saved context; existing lyrics and takes are preserved. Only lines associated with restored recordings are recreated, so this does not restore a complete deleted song. Choose **Delete Permanently** to remove selected files after confirmation. **Show in Finder** opens each recording's real file location. Trash survives restarts and is excluded from song exports.
+The sidebar's **Trash** has **Songs** and **Recordings** tabs. The Songs tab restores complete deleted songs. The Recordings tab lists every deleted recording, including takes attached to songs in the Songs tab and takes removed individually, with a lyric line, or by imported lyric replacement. Each recording shows its original lyric and annotation. Select one, several, or all entries in the current tab and choose **Restore Selected**. Restoring a song includes its attached takes; recordings deleted separately before the song remain independent entries in Recordings.
+
+Restoring a recording while its song is still in Songs Trash restores that complete song with its attached takes, then reattaches any selected independently deleted takes. If no complete song snapshot exists, missing lyrics or songs are recreated only from the recording's saved context. This applies to songs deleted by earlier app versions, which did not retain unrecorded lyric lines. Existing lyrics and takes are preserved.
+
+**Delete Permanently** confirms the exact selected entries before removing them. Permanently deleting a song removes its snapshot and attached takes; independently deleted recordings stay in Recordings. Permanently deleting selected recordings removes only those takes, even when they belong to a deleted song; its lyrics and other recordings remain available for restoration. Entries with permanent deletion pending cannot be restored, and failed removals can be retried. **Show in Finder** opens a recording's real file location. Trash survives restarts and is excluded from song exports. See <doc:LibraryAndDocuments> for recovery details.
 
 ### Set and adjust timing
 

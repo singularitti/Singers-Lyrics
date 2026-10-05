@@ -132,7 +132,7 @@ struct MobileLibraryView: View {
             }
         }
         .confirmationDialog(
-            "Delete this song and its lyrics?",
+            "Move this song and its lyrics to Trash?",
             isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }),
             titleVisibility: .visible
         ) {

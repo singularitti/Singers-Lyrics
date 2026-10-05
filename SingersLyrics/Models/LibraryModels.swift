@@ -6,19 +6,22 @@ struct LibraryDocument: Codable, Equatable, Sendable {
     var schemaVersion: Int
     var songs: [Song]
     var trashedRecordings: [TrashedRecording]
+    var trashedSongs: [TrashedSong]
 
     init(
         schemaVersion: Int = Self.currentSchemaVersion,
         songs: [Song] = [],
-        trashedRecordings: [TrashedRecording] = []
+        trashedRecordings: [TrashedRecording] = [],
+        trashedSongs: [TrashedSong] = []
     ) {
         self.schemaVersion = schemaVersion
         self.songs = songs
         self.trashedRecordings = trashedRecordings
+        self.trashedSongs = trashedSongs
     }
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, songs, trashedRecordings
+        case schemaVersion, songs, trashedRecordings, trashedSongs
     }
 
     init(from decoder: Decoder) throws {
@@ -28,7 +31,8 @@ struct LibraryDocument: Codable, Equatable, Sendable {
             songs: try container.decode([Song].self, forKey: .songs),
             trashedRecordings: try container.decodeIfPresent(
                 [TrashedRecording].self, forKey: .trashedRecordings
-            ) ?? []
+            ) ?? [],
+            trashedSongs: try container.decodeIfPresent([TrashedSong].self, forKey: .trashedSongs) ?? []
         )
     }
 }
@@ -140,6 +144,48 @@ struct Song: Codable, Equatable, Identifiable, Sendable {
             lines: [.blank()],
             createdAt: now,
             updatedAt: now
+        )
+    }
+}
+
+struct TrashedSong: Codable, Equatable, Identifiable, Sendable {
+    var song: Song
+    var deletedAt: Date
+    var originalIndex: Int
+    var siblingOrder: [UUID]
+    var isPendingPermanentDeletion: Bool
+
+    var id: UUID { song.id }
+
+    init(
+        song: Song,
+        deletedAt: Date = Date(),
+        originalIndex: Int = 0,
+        siblingOrder: [UUID] = [],
+        isPendingPermanentDeletion: Bool = false
+    ) {
+        self.song = song
+        self.deletedAt = deletedAt
+        self.originalIndex = max(0, originalIndex)
+        self.siblingOrder = siblingOrder
+        self.isPendingPermanentDeletion = isPendingPermanentDeletion
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case song, deletedAt, originalIndex, siblingOrder, isPendingPermanentDeletion
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let song = try container.decode(Song.self, forKey: .song)
+        self.init(
+            song: song,
+            deletedAt: try container.decodeIfPresent(Date.self, forKey: .deletedAt) ?? song.updatedAt,
+            originalIndex: try container.decodeIfPresent(Int.self, forKey: .originalIndex) ?? 0,
+            siblingOrder: try container.decodeIfPresent([UUID].self, forKey: .siblingOrder) ?? [],
+            isPendingPermanentDeletion: try container.decodeIfPresent(
+                Bool.self, forKey: .isPendingPermanentDeletion
+            ) ?? false
         )
     }
 }

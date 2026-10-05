@@ -31,7 +31,7 @@ The Xcode project's synchronized source group shares code between targets. The i
 
 | Component | Responsibility |
 | --- | --- |
-| `AppModel` | Owns the library, selection, imports, recording Trash transitions, metadata backfill, and autosave. |
+| `AppModel` | Owns the library, selection, imports, complete-song and recording Trash transitions, metadata backfill, and autosave. |
 | `LibraryStoring` | Separates persistent storage from the app model. |
 | `JSONLibraryStore` | Reads and saves library metadata, retains active and trashed audio, and permits explicit permanent deletion only after a pending marker is committed. |
 | `VoiceRecordingController` | Owns the single Mac microphone/player session, permissions, cancellation, and completion callbacks to stable song/line IDs. |
@@ -51,7 +51,11 @@ Edits update the model and schedule autosave. On iOS, a background task gives pe
 
 On Mac, completing a voice take appends it through `AppModel` using its original song and line IDs. Removing its owner finishes a running capture before archiving the audio in Trash, or cancels a pending permission request, preventing late callbacks from attaching audio to another line. `replaceSong` detects removed recordings centrally, covering line edits, Undo/Redo, and imported lyric replacement. Saves are serialized, and a flush waits for the latest edits. Application termination finishes the active take and waits for persistence; a save failure offers the choice to keep the app open.
 
-Trash entries own a recording and its original song/line identity plus a display context snapshot. They retain the same physical UUID path as the original audio. Permanent deletion commits intent, unlinks the file, then removes metadata; a pending entry tolerates missing audio and can be retried after interruption. Session-level deleted IDs reject stale Undo attempts, and imports remap identities that collide with active, trashed, or permanently removed takes. Song package exports contain only active recordings.
+`LibraryDocument.trashedSongs` retains complete deleted songs and their original positions, including metadata, all lyric lines, styled text, annotations, timestamps, track links, favorites, tags, and attached recordings. Empty songs and lyric lines without audio are retained too. `trashedRecordings` holds recordings deleted individually, through lyric-line deletion, or through imported lyric replacement, with their original song/line identities and saved context. Audio keeps the same physical UUID paths in both collections. The Mac Trash view presents Songs and Recordings tabs. `AppModel.recordingsInTrash` combines individual entries with a projection of every take in deleted songs, carrying lyric context and parent pending state without duplicating persisted audio ownership; shared mobile storage preserves both collections without exposing that management interface.
+
+Whole-song restoration restores the complete snapshot with stable identities and order. Previously deleted independent recordings remain separate. Restoring a projected or individual recording while its parent song is in Songs Trash restores the complete song first, then reattaches any selected individual takes; a pending parent song prevents restoration. When no complete snapshot exists, recording restoration uses only its saved context. Older song deletions cannot recover unrecorded lyric lines absent from that context.
+
+Permanent deletion commits a pending marker before unlinking files, then removes the song or recording metadata after its files are removed. A pending song can tolerate partial removal of its attached audio, and pending entries remain retryable and cannot be restored. Permanently deleting a song removes its attached takes without removing independent recording Trash entries. Permanently deleting an individual take inside a deleted song atomically transfers that take from the song snapshot to an individual pending entry before unlinking it; the song and its other takes remain restorable. Session-level deleted IDs reject stale Undo attempts, and imports reserve identities across active songs and both Trash collections, remapping conflicts. Song package exports contain only active songs and recordings; the portable format remains version 2.
 
 ### Manage the mobile lifecycle
 

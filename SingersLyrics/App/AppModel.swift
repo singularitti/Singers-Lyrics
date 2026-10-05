@@ -39,6 +39,39 @@ final class AppModel {
     var selectedSongIDs: Set<UUID> = []
     var isShowingRecordingTrash = false
     private(set) var isPermanentlyDeletingRecordings = false
+    private(set) var isPermanentlyDeletingSongs = false
+    var isPermanentlyDeletingTrash: Bool {
+        isPermanentlyDeletingRecordings || isPermanentlyDeletingSongs
+    }
+    /// One recording list for both Trash tabs, without duplicating persisted ownership.
+    var recordingsInTrash: [TrashedRecording] {
+        library.trashedRecordings + library.trashedSongs.flatMap { entry in
+            entry.song.lines.enumerated().flatMap { lineIndex, line in
+                line.recordings.map { recording in
+                    TrashedRecording(
+                        recording: recording,
+                        songID: entry.id,
+                        lineID: line.id,
+                        songTitle: entry.song.title,
+                        songArtist: entry.song.artist,
+                        lyricText: line.lyric.plainText,
+                        annotation: line.annotation,
+                        deletedAt: entry.deletedAt,
+                        isPendingPermanentDeletion: entry.isPendingPermanentDeletion,
+                        restorationContext: RecordingRestorationContext(
+                            song: entry.song,
+                            line: line,
+                            lineIndex: lineIndex,
+                            songIndex: entry.originalIndex,
+                            lineOrder: entry.song.lines.map(\.id),
+                            songOrder: entry.siblingOrder
+                        )
+                    )
+                }
+            }
+        }
+    }
+    var trashedItemCount: Int { library.trashedSongs.count + recordingsInTrash.count }
     var isCreatingSong = false
     var isImportingSongBundle = false
     private(set) var isLoaded = false
@@ -74,6 +107,9 @@ final class AppModel {
             guard !isLoaded else { return }
             library = document
             permanentlyDeletedRecordingIDs = Set(document.trashedRecordings.filter(\.isPendingPermanentDeletion).map(\.id))
+                .union(document.trashedSongs.filter(\.isPendingPermanentDeletion).flatMap { entry in
+                    entry.song.lines.flatMap { $0.recordings.map(\.id) }
+                })
             if let saved = UserDefaults.standard.string(forKey: PreferenceKey.selectedSong),
                let id = UUID(uuidString: saved),
                library.songs.contains(where: { $0.id == id }) {
@@ -385,9 +421,10 @@ final class AppModel {
     func importSongs(_ songs: [Song]) -> [UUID] {
         guard !songs.isEmpty else { return [] }
 
-        var occupiedSongIDs = Set(library.songs.map(\.id))
-        var occupiedLineIDs = Set(library.songs.flatMap { $0.lines.map(\.id) })
-        var occupiedRecordingIDs = Set(library.songs.flatMap { $0.lines.flatMap { $0.recordings.map(\.id) } })
+        let retainedSongs = library.songs + library.trashedSongs.map(\.song)
+        var occupiedSongIDs = Set(retainedSongs.map(\.id))
+        var occupiedLineIDs = Set(retainedSongs.flatMap { $0.lines.map(\.id) })
+        var occupiedRecordingIDs = Set(retainedSongs.flatMap { $0.lines.flatMap { $0.recordings.map(\.id) } })
             .union(library.trashedRecordings.map(\.id))
             .union(permanentlyDeletedRecordingIDs)
         var importedSongs: [Song] = []
@@ -431,6 +468,9 @@ final class AppModel {
     }
 
     func deleteSongs(_ ids: Set<UUID>) {
+        guard !isPermanentlyDeletingTrash else { return }
+        let ids = ids.intersection(Set(library.songs.map(\.id)))
+            .subtracting(library.trashedSongs.map(\.id))
         guard !ids.isEmpty else { return }
         #if os(macOS)
         if voiceRecordings.recordingSongID.map(ids.contains) == true {
@@ -438,8 +478,15 @@ final class AppModel {
             guard !voiceRecordings.hasUncommittedRecording else { return }
         }
         #endif
-        for song in library.songs where ids.contains(song.id) {
-            moveRecordingsToTrash(from: song)
+        let deletedAt = Date()
+        let siblingOrder = library.songs.map(\.id)
+        for (index, song) in library.songs.enumerated() where ids.contains(song.id) {
+            library.trashedSongs.append(TrashedSong(
+                song: song,
+                deletedAt: deletedAt,
+                originalIndex: index,
+                siblingOrder: siblingOrder
+            ))
         }
         library.songs.removeAll { ids.contains($0.id) }
         #if os(macOS)
@@ -458,6 +505,49 @@ final class AppModel {
 
     func deleteSong(_ id: UUID) {
         deleteSongs([id])
+    }
+
+    @discardableResult
+    func restoreSongs(_ ids: Set<UUID>) -> Set<UUID> {
+        guard !isPermanentlyDeletingTrash, !ids.isEmpty else { return [] }
+        let candidates = library.trashedSongs.filter {
+            ids.contains($0.id) && !$0.isPendingPermanentDeletion
+        }.sorted { lhs, rhs in
+            if lhs.originalIndex != rhs.originalIndex { return lhs.originalIndex < rhs.originalIndex }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+        var occupiedSongIDs = Set(library.songs.map(\.id))
+        var occupiedLineIDs = Set(library.songs.flatMap { $0.lines.map(\.id) })
+        var occupiedRecordingIDs = Set(library.songs.flatMap { $0.lines.flatMap { $0.recordings.map(\.id) } })
+            .union(library.trashedRecordings.map(\.id))
+            .union(permanentlyDeletedRecordingIDs)
+        var restoredIDs: Set<UUID> = []
+        for entry in candidates {
+            let song = entry.song
+            let lineIDs = Set(song.lines.map(\.id))
+            let recordingIDs = Set(song.lines.flatMap { $0.recordings.map(\.id) })
+            guard !occupiedSongIDs.contains(song.id),
+                  occupiedLineIDs.isDisjoint(with: lineIDs),
+                  occupiedRecordingIDs.isDisjoint(with: recordingIDs),
+                  (try? RecordingAssetStorage.validate(songs: [song], requireAudio: true)) != nil else {
+                continue
+            }
+            let index = Self.restoredInsertionIndex(
+                for: song.id,
+                siblingOrder: entry.siblingOrder,
+                currentIDs: library.songs.map(\.id),
+                fallbackIndex: entry.originalIndex
+            )
+            library.songs.insert(song, at: index)
+            occupiedSongIDs.insert(song.id)
+            occupiedLineIDs.formUnion(lineIDs)
+            occupiedRecordingIDs.formUnion(recordingIDs)
+            restoredIDs.insert(song.id)
+        }
+        guard !restoredIDs.isEmpty else { return [] }
+        library.trashedSongs.removeAll { restoredIDs.contains($0.id) }
+        markChanged()
+        return restoredIDs
     }
 
     private func moveRecordingsToTrash(from song: Song, excluding keptIDs: Set<UUID> = []) {
@@ -495,16 +585,31 @@ final class AppModel {
 
     @discardableResult
     func restoreRecordings(_ ids: Set<UUID>) -> Set<UUID> {
-        guard !isPermanentlyDeletingRecordings, !ids.isEmpty else { return [] }
-        var activeRecordingIDs = Set(library.songs.flatMap { song in
+        guard !isPermanentlyDeletingTrash, !ids.isEmpty else { return [] }
+        let requested = recordingsInTrash.filter {
+            ids.contains($0.id) && !$0.isPendingPermanentDeletion
+                && !permanentlyDeletedRecordingIDs.contains($0.id) && !$0.recording.audioData.isEmpty
+        }
+        let parentIDs = Set(requested.map(\.songID))
+        // Restore the complete owner before reattaching an independently deleted
+        // take. Never replace a retained whole song with a partial reconstruction.
+        let restoredSongIDs = restoreSongs(parentIDs)
+        // Selected takes nested in those songs have already returned to the library.
+        let restoredAttachedIDs = Set(library.songs.filter { restoredSongIDs.contains($0.id) }.flatMap { song in
+            song.lines.flatMap { $0.recordings.map(\.id) }
+        }).intersection(ids)
+        let unavailableParentIDs = Set(library.trashedSongs.map(\.id))
+        let retainedSongs = library.songs + library.trashedSongs.map(\.song)
+        var activeRecordingIDs = Set(retainedSongs.flatMap { song in
             song.lines.flatMap { $0.recordings.map(\.id) }
         })
         var lineOwners: [UUID: UUID] = [:]
-        for song in library.songs {
+        for song in retainedSongs {
             for line in song.lines { lineOwners[line.id] = song.id }
         }
         let recoverable = library.trashedRecordings.filter {
             ids.contains($0.id) && !$0.isPendingPermanentDeletion
+                && !unavailableParentIDs.contains($0.songID)
                 && !permanentlyDeletedRecordingIDs.contains($0.id)
                 && !$0.recording.audioData.isEmpty && !activeRecordingIDs.contains($0.id)
         }.sorted { lhs, rhs in
@@ -523,7 +628,7 @@ final class AppModel {
         }
 
         let now = Date()
-        var restoredIDs: Set<UUID> = []
+        var restoredIDs = restoredAttachedIDs
         for trashed in recoverable {
             // An imported or otherwise reused line identity must not create a
             // second line with that identity in a different song.
@@ -616,8 +721,9 @@ final class AppModel {
     }
 
     func permanentlyDeleteRecordings(_ ids: Set<UUID>) async {
-        guard !isPermanentlyDeletingRecordings else { return }
-        let selectedIDs = ids.intersection(Set(library.trashedRecordings.map(\.id)))
+        guard !isPermanentlyDeletingTrash else { return }
+        let selectedRecordings = recordingsInTrash.filter { ids.contains($0.id) }
+        let selectedIDs = Set(selectedRecordings.map(\.id))
         guard !selectedIDs.isEmpty else { return }
         guard !autosaveDisabled else {
             storageIssue = StorageIssue(
@@ -629,6 +735,23 @@ final class AppModel {
 
         isPermanentlyDeletingRecordings = true
         defer { isPermanentlyDeletingRecordings = false }
+        // Transfer selected nested takes into individual pending entries before
+        // saving deletion intent. The song keeps its lyrics and remaining takes.
+        let individualIDs = Set(library.trashedRecordings.map(\.id))
+        for songIndex in library.trashedSongs.indices {
+            for lineIndex in library.trashedSongs[songIndex].song.lines.indices {
+                library.trashedSongs[songIndex].song.lines[lineIndex].recordings.removeAll {
+                    selectedIDs.contains($0.id)
+                }
+                if let selectedID = library.trashedSongs[songIndex].song.lines[lineIndex].selectedRecordingID,
+                   selectedIDs.contains(selectedID) {
+                    library.trashedSongs[songIndex].song.lines[lineIndex].selectedRecordingID = nil
+                }
+            }
+        }
+        library.trashedRecordings.append(contentsOf: selectedRecordings.filter {
+            !individualIDs.contains($0.id)
+        })
         permanentlyDeletedRecordingIDs.formUnion(selectedIDs)
         for index in library.trashedRecordings.indices where selectedIDs.contains(library.trashedRecordings[index].id) {
             library.trashedRecordings[index].isPendingPermanentDeletion = true
@@ -667,9 +790,82 @@ final class AppModel {
         }
     }
 
+    func permanentlyDeleteSongs(_ ids: Set<UUID>) async {
+        guard !isPermanentlyDeletingTrash else { return }
+        let selectedIDs = ids.intersection(Set(library.trashedSongs.map(\.id)))
+        guard !selectedIDs.isEmpty else { return }
+        guard !autosaveDisabled else {
+            storageIssue = StorageIssue(
+                title: "Songs Could Not Be Deleted",
+                message: "The library must be saved before songs can be permanently deleted. Resolve the library storage error and reopen the app to retry."
+            )
+            return
+        }
+
+        isPermanentlyDeletingSongs = true
+        defer { isPermanentlyDeletingSongs = false }
+        for index in library.trashedSongs.indices where selectedIDs.contains(library.trashedSongs[index].id) {
+            library.trashedSongs[index].isPendingPermanentDeletion = true
+            for lineIndex in library.trashedSongs[index].song.lines.indices {
+                let recordings = library.trashedSongs[index].song.lines[lineIndex].recordings
+                permanentlyDeletedRecordingIDs.formUnion(recordings.map(\.id))
+                for recordingIndex in recordings.indices {
+                    library.trashedSongs[index].song.lines[lineIndex].recordings[recordingIndex].audioData = Data()
+                }
+            }
+        }
+        markChanged()
+        // Persist the full pending snapshot before unlinking anything. An
+        // interrupted purge retains every identity needed to retry safely.
+        await flush()
+        guard !autosaveDisabled else { return }
+        #if os(macOS)
+        for window in NSApp?.windows ?? [] { window.undoManager?.removeAllActions() }
+        #endif
+
+        let pending = library.trashedSongs.filter { selectedIDs.contains($0.id) }
+        var deletedIDs: Set<UUID> = []
+        for entry in pending {
+            var deletionSucceeded = true
+            for line in entry.song.lines {
+                for recording in line.recordings {
+                    let pendingRecording = TrashedRecording(
+                        recording: recording,
+                        songID: entry.id,
+                        lineID: line.id,
+                        songTitle: entry.song.title,
+                        songArtist: entry.song.artist,
+                        lyricText: line.lyric.plainText,
+                        annotation: line.annotation,
+                        deletedAt: entry.deletedAt,
+                        isPendingPermanentDeletion: true
+                    )
+                    do {
+                        try await store.permanentlyDeleteRecording(pendingRecording)
+                    } catch {
+                        deletionSucceeded = false
+                    }
+                }
+            }
+            if deletionSucceeded { deletedIDs.insert(entry.id) }
+        }
+        if !deletedIDs.isEmpty {
+            library.trashedSongs.removeAll { deletedIDs.contains($0.id) }
+            markChanged()
+            await flush()
+        }
+        let failedCount = selectedIDs.subtracting(deletedIDs).count
+        if failedCount > 0, !autosaveDisabled {
+            storageIssue = StorageIssue(
+                title: "Some Songs Could Not Be Deleted",
+                message: "\(failedCount) song(s) remain in Trash with deletion pending. Check access to the library folder, then select them and choose Delete Permanently again."
+            )
+        }
+    }
+
     #if os(macOS)
     func revealRecordingInFinder(_ recordingID: UUID) async {
-        guard let recording = library.trashedRecordings.first(where: { $0.id == recordingID }) else { return }
+        guard let recording = recordingsInTrash.first(where: { $0.id == recordingID }) else { return }
         if !autosaveDisabled { await flush() }
         do {
             let url = try await store.recordingFileURL(

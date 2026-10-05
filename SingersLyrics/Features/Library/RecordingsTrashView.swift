@@ -11,19 +11,28 @@ struct RecordingsTrashView: View {
     @FocusState private var listHasFocus: Bool
 
     private var recordings: [TrashedRecording] {
-        model.library.trashedRecordings.sorted { lhs, rhs in
+        model.recordingsInTrash.sorted { lhs, rhs in
             if lhs.deletedAt != rhs.deletedAt { return lhs.deletedAt > rhs.deletedAt }
             return lhs.id.uuidString < rhs.id.uuidString
         }
     }
 
     private var recordingIDs: Set<UUID> {
-        Set(model.library.trashedRecordings.map(\.id))
+        Set(model.recordingsInTrash.map(\.id))
+    }
+
+    private var trashedSongIDs: Set<UUID> {
+        Set(model.library.trashedSongs.map(\.id))
+    }
+
+    private var pendingSongIDs: Set<UUID> {
+        Set(model.library.trashedSongs.filter(\.isPendingPermanentDeletion).map(\.id))
     }
 
     private var restorableSelection: Set<UUID> {
-        selection.intersection(Set(model.library.trashedRecordings
-            .filter { !$0.isPendingPermanentDeletion }
+        let blockedSongIDs = pendingSongIDs
+        return selection.intersection(Set(model.recordingsInTrash
+            .filter { !$0.isPendingPermanentDeletion && !blockedSongIDs.contains($0.songID) }
             .map(\.id)))
     }
 
@@ -41,11 +50,11 @@ struct RecordingsTrashView: View {
             Divider()
 
             if recordings.isEmpty {
-                ContentUnavailableView(
-                    "Trash Is Empty",
-                    systemImage: "trash",
-                    description: Text("Deleted recordings stay here until you restore or permanently delete them.")
-                )
+                ContentUnavailableView {
+                    Text("No Deleted Recordings")
+                } description: {
+                    Text("All deleted recordings appear here, including those from deleted songs. Restore them or delete them permanently; lyrics are kept.")
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("recordingsTrashEmptyState")
             } else {
@@ -68,7 +77,7 @@ struct RecordingsTrashView: View {
                 deletionRequest = nil
                 Task { await model.permanentlyDeleteRecordings(ids) }
             }
-            .disabled(model.isPermanentlyDeletingRecordings)
+            .disabled(model.isPermanentlyDeletingTrash)
             .help("Confirm permanent deletion of the selected recordings and their audio files")
             .accessibilityLabel("Confirm permanent deletion of \(request.ids.count) recordings")
             .accessibilityIdentifier("confirmPermanentRecordingDeletionButton")
@@ -91,20 +100,15 @@ struct RecordingsTrashView: View {
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("recordingsTrashCount")
 
-            Text("Recordings stay in this app’s Trash until you restore or permanently delete them. Restore returns recordings to their original song and lyric lines. Show in Finder reveals each stored audio file.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
             HStack(spacing: 10) {
                 Button("Select All", action: selectAll)
-                    .disabled(recordings.isEmpty || selection == recordingIDs || model.isPermanentlyDeletingRecordings)
+                    .disabled(recordings.isEmpty || selection == recordingIDs || model.isPermanentlyDeletingTrash)
                     .help("Select every recording in Trash")
                     .accessibilityLabel("Select all recordings in Trash")
                     .accessibilityIdentifier("selectAllTrashedRecordingsButton")
 
                 Button("Clear Selection") { selection = [] }
-                    .disabled(selection.isEmpty || model.isPermanentlyDeletingRecordings)
+                    .disabled(selection.isEmpty || model.isPermanentlyDeletingTrash)
                     .help("Clear the selected recordings")
                     .accessibilityLabel("Clear recording selection")
                     .accessibilityIdentifier("clearTrashedRecordingSelectionButton")
@@ -112,23 +116,24 @@ struct RecordingsTrashView: View {
                 Spacer(minLength: 8)
 
                 Button("Restore Selected", action: restoreSelection)
-                    .disabled(restorableSelection.isEmpty || model.isPermanentlyDeletingRecordings || !revealingIDs.isEmpty)
+                    .disabled(restorableSelection.isEmpty || model.isPermanentlyDeletingTrash || !revealingIDs.isEmpty)
                     .help("Restore eligible selected recordings to their original song and lyric lines")
                     .accessibilityLabel("Restore \(restorableSelection.count) selected recordings")
                     .accessibilityIdentifier("restoreSelectedTrashedRecordingsButton")
 
                 Button("Delete Permanently…", role: .destructive, action: requestDeletion)
-                    .disabled(selection.isEmpty || model.isPermanentlyDeletingRecordings || !revealingIDs.isEmpty)
-                    .help("Permanently delete the selected recordings after confirmation")
+                    .disabled(selection.isEmpty || model.isPermanentlyDeletingTrash || !revealingIDs.isEmpty)
+                    .help("Permanently delete only the selected takes after confirmation, preserving songs, lyrics, and other takes")
                     .accessibilityLabel("Permanently delete \(selection.count) selected recordings")
                     .accessibilityIdentifier("deleteTrashedRecordingsPermanentlyButton")
             }
             .buttonStyle(.bordered)
 
             HStack(spacing: 8) {
-                if model.isPermanentlyDeletingRecordings {
+                if model.isPermanentlyDeletingTrash {
                     ProgressView().controlSize(.small)
-                    Text("Deleting recordings permanently…")
+                    Text(model.isPermanentlyDeletingSongs
+                        ? "Deleting songs permanently…" : "Deleting recordings permanently…")
                         .accessibilityIdentifier("recordingsTrashDeletionProgress")
                 } else {
                     Text(selectionSummary)
@@ -155,8 +160,10 @@ struct RecordingsTrashView: View {
             ForEach(recordings) { entry in
                 TrashedRecordingRow(
                     entry: entry,
-                    isDeleting: model.isPermanentlyDeletingRecordings,
+                    isDeleting: model.isPermanentlyDeletingTrash,
                     isRevealing: revealingIDs.contains(entry.id),
+                    isOwningSongInTrash: trashedSongIDs.contains(entry.songID),
+                    isOwningSongPendingDeletion: pendingSongIDs.contains(entry.songID),
                     onReveal: { reveal(entry.id) }
                 )
                 .tag(entry.id)
@@ -167,7 +174,7 @@ struct RecordingsTrashView: View {
         .focused($listHasFocus)
         .onKeyPress(keys: ["a"], phases: .down) { press in
             guard listHasFocus, press.modifiers == .command,
-                  !model.isPermanentlyDeletingRecordings,
+                  !model.isPermanentlyDeletingTrash,
                   !showsDeletionConfirmation else { return .ignored }
             selectAll()
             return .handled
@@ -183,7 +190,7 @@ struct RecordingsTrashView: View {
 
     private func requestDeletion() {
         let ids = selection.intersection(recordingIDs)
-        guard !ids.isEmpty, !model.isPermanentlyDeletingRecordings,
+        guard !ids.isEmpty, !model.isPermanentlyDeletingTrash,
               revealingIDs.isEmpty else { return }
         deletionRequest = RecordingDeletionRequest(ids: ids)
         showsDeletionConfirmation = true
@@ -191,9 +198,13 @@ struct RecordingsTrashView: View {
 
     private func restoreSelection() {
         let ids = restorableSelection
-        guard !ids.isEmpty, !model.isPermanentlyDeletingRecordings,
+        guard !ids.isEmpty, !model.isPermanentlyDeletingTrash,
               revealingIDs.isEmpty, !showsDeletionConfirmation else { return }
-        let restoredIDs = model.restoreRecordings(ids)
+        let owningSongsBeforeRestore = trashedSongIDs
+        let owningSongsByRecording = Dictionary(uniqueKeysWithValues: recordings
+            .filter { ids.contains($0.id) && owningSongsBeforeRestore.contains($0.songID) }
+            .map { ($0.id, $0.songID) })
+        let restoredIDs = model.restoreRecordings(ids).intersection(ids)
         selection.subtract(restoredIDs)
         if restoredIDs.isEmpty {
             restoreStatus = "No recordings were restored."
@@ -202,6 +213,13 @@ struct RecordingsTrashView: View {
             restoreStatus = count == 1
                 ? "Restored 1 recording to its original lyric line in Songs."
                 : "Restored \(count) recordings to their original lyric lines in Songs."
+        }
+        let restoredOwningSongIDs = Set(restoredIDs.compactMap { owningSongsByRecording[$0] })
+        let restoredSongCount = restoredOwningSongIDs.subtracting(trashedSongIDs).count
+        if restoredSongCount > 0 {
+            restoreStatus = (restoreStatus ?? "") + (restoredSongCount == 1
+                ? " 1 owning song was also restored with its lyrics and attached recordings."
+                : " \(restoredSongCount) owning songs were also restored with their lyrics and attached recordings.")
         }
         let remainingCount = selection.intersection(recordingIDs).count
         if remainingCount > 0 {
@@ -212,7 +230,7 @@ struct RecordingsTrashView: View {
     }
 
     private func reveal(_ id: UUID) {
-        guard !model.isPermanentlyDeletingRecordings, !revealingIDs.contains(id) else { return }
+        guard !model.isPermanentlyDeletingTrash, !revealingIDs.contains(id) else { return }
         revealingIDs.insert(id)
         Task {
             await model.revealRecordingInFinder(id)
@@ -230,9 +248,9 @@ private struct RecordingDeletionRequest {
 
     var message: String {
         if ids.count == 1 {
-            return "The selected recording and its stored audio file will be permanently deleted. This cannot be undone."
+            return "The selected recording and its stored audio file will be permanently deleted. Its song, lyrics, and other recordings will be preserved. This cannot be undone."
         }
-        return "The \(ids.count) selected recordings and their stored audio files will be permanently deleted. This cannot be undone."
+        return "The \(ids.count) selected recordings and their stored audio files will be permanently deleted. Their songs, lyrics, and other recordings will be preserved. This cannot be undone."
     }
 }
 
@@ -240,6 +258,8 @@ private struct TrashedRecordingRow: View {
     let entry: TrashedRecording
     let isDeleting: Bool
     let isRevealing: Bool
+    let isOwningSongInTrash: Bool
+    let isOwningSongPendingDeletion: Bool
     let onReveal: () -> Void
 
     var body: some View {
@@ -270,13 +290,13 @@ private struct TrashedRecordingRow: View {
                 Text(entry.lyricText)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if !entry.annotation.isEmpty {
                 Text("Annotation: \(entry.annotation)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             ViewThatFits(in: .horizontal) {
@@ -292,6 +312,17 @@ private struct TrashedRecordingRow: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("trashedRecordingPendingDeletion-\(entry.id.uuidString)")
+            } else if isOwningSongPendingDeletion && !isDeleting {
+                Label("The song is awaiting permanent deletion. This recording cannot be restored.", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("trashedRecordingOwningSongPendingDeletion-\(entry.id.uuidString)")
+            } else if isOwningSongInTrash && !isDeleting {
+                Text("Restoring this recording also restores its song with its lyrics and attached recordings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 8)
