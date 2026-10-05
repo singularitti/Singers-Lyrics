@@ -161,6 +161,14 @@ final class IOSMusicController: MusicControlling {
         return MusicActionResult(succeeded: true, permissionDenied: false)
     }
 
+    func pause() async -> MusicActionResult {
+        // Advancing the generation also prevents an in-flight open or resume
+        // from starting the song after a voice take has claimed the audio.
+        openGeneration &+= 1
+        player.pause()
+        return MusicActionResult(succeeded: true, permissionDenied: false)
+    }
+
     private func requestAuthorizationIfNeeded() async -> MPMediaLibraryAuthorizationStatus {
         switch MPMediaLibrary.authorizationStatus() {
         case .authorized, .denied, .restricted:

@@ -177,7 +177,7 @@ struct MobileLyricsImportSheet: View {
                     dismiss()
                 }
             } message: {
-                Text("The imported text will replace the song’s existing formatting, annotations, and timestamps. Attached recordings will be retained in the library’s recording trash.")
+                Text("The imported text will replace the song’s existing formatting, annotations, and timestamps. Attached recordings will move to Trash.")
             }
             .fileImporter(isPresented: $showsImporter, allowedContentTypes: [.plainText, .lrcLyrics]) { result in
                 do {

@@ -12,6 +12,7 @@ struct MobileSongWorkspace: View {
     let metadataLookup: any TrackMetadataLookingUp
 
     @Environment(MusicPlaybackModel.self) private var playback
+    @Environment(AppModel.self) private var model
     @State private var mode = MobileSongMode.editor
     @State private var pollingOwner = UUID()
     @State private var showsDetails = false
@@ -58,6 +59,12 @@ struct MobileSongWorkspace: View {
                         Divider()
                         Button("Import Lyrics", systemImage: "square.and.arrow.down") { showsImport = true }
                         Button("Export Song Bundle", systemImage: "square.and.arrow.up") {
+                            // Include a running take in the exported document.
+                            let voice = model.voiceRecordings
+                            if voice.recordingSongID == song.id {
+                                voice.finishRecording()
+                                guard !voice.hasUncommittedRecording else { return }
+                            }
                             showsBundleExport = true
                         }
                         Button("Export LRC", systemImage: "doc.text") { showsLRCExport = true }

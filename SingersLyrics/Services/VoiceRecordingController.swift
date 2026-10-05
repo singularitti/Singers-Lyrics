@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 import Observation
 @preconcurrency import AVFoundation
@@ -11,6 +10,8 @@ final class VoiceRecordingController: NSObject {
     var onRecordingFinished: (@MainActor (UUID, UUID, VoiceRecording) -> Void)?
 
     var errorMessage: String?
+    /// Lets the error presentation offer the system privacy settings.
+    private(set) var microphoneAccessDenied = false
     private(set) var recordingSongID: UUID?
     private(set) var recordingLineID: UUID?
     private(set) var playingSongID: UUID?
@@ -33,6 +34,17 @@ final class VoiceRecordingController: NSObject {
     @ObservationIgnored private var capture: Capture?
     @ObservationIgnored private var clockTask: Task<Void, Never>?
     @ObservationIgnored private var operationGeneration: UInt64 = 0
+    #if os(iOS)
+    private struct AudioSessionConfiguration {
+        var category: AVAudioSession.Category
+        var mode: AVAudioSession.Mode
+        var options: AVAudioSession.CategoryOptions
+    }
+
+    /// The app's configuration before the first take used the shared session.
+    @ObservationIgnored private var restoredAudioSession: AudioSessionConfiguration?
+    @ObservationIgnored private var keepsAudioSession = false
+    #endif
 
     var hasUncommittedRecording: Bool { capture != nil }
 
@@ -42,13 +54,15 @@ final class VoiceRecordingController: NSObject {
     }
 
     func record(songID: UUID, lineID: UUID, name: String) async {
-        stop()
+        stopBeforeNextAction()
         // Preserve a completed file if an earlier read or delivery failed.
         guard capture == nil else {
+            releaseAudioSessionIfIdle()
             errorMessage = "Your previous recording could not be saved. Try stopping again before recording another take."
             return
         }
         errorMessage = nil
+        microphoneAccessDenied = false
         operationGeneration &+= 1
         let generation = operationGeneration
         recordingSongID = songID
@@ -60,20 +74,24 @@ final class VoiceRecordingController: NSObject {
         guard isCurrent(generation) else { return }
         guard permission else {
             clearRecordingState()
-            errorMessage = "Microphone access is required to record your voice. Allow it in System Settings > Privacy & Security > Microphone."
+            microphoneAccessDenied = true
+            errorMessage = VoiceRecordingMessage.microphoneAccessDenied
             return
         }
         let ready = await prepareForAudio?() ?? true
         guard isCurrent(generation) else { return }
         guard ready else {
             clearRecordingState()
-            errorMessage = "The song could not be paused. Pause it in Music, then try recording again."
+            errorMessage = VoiceRecordingMessage.songNotPausedForRecording
             return
         }
 
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("SingersLyrics-Voice-\(UUID().uuidString).m4a")
         do {
+            #if os(iOS)
+            try activateAudioSession(forRecording: true)
+            #endif
             let newRecorder = try AVAudioRecorder(url: url, settings: [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
                 AVSampleRateKey: 44_100.0,
@@ -87,7 +105,7 @@ final class VoiceRecordingController: NSObject {
                 newRecorder.stop()
                 try? FileManager.default.removeItem(at: url)
                 clearRecordingState()
-                errorMessage = "The microphone could not start recording. Check your audio input in System Settings and try again."
+                errorMessage = VoiceRecordingMessage.microphoneUnavailable
                 return
             }
             capture = Capture(
@@ -103,17 +121,19 @@ final class VoiceRecordingController: NSObject {
         } catch {
             try? FileManager.default.removeItem(at: url)
             clearRecordingState()
-            errorMessage = "The microphone could not start recording. Check your audio input in System Settings and try again."
+            errorMessage = VoiceRecordingMessage.microphoneUnavailable
         }
     }
 
     func play(_ recording: VoiceRecording, songID: UUID, lineID: UUID) async {
-        stop()
+        stopBeforeNextAction()
         guard capture == nil else {
+            releaseAudioSessionIfIdle()
             errorMessage = "Your previous recording could not be saved. Try stopping again before playing a take."
             return
         }
         errorMessage = nil
+        microphoneAccessDenied = false
         operationGeneration &+= 1
         let generation = operationGeneration
         playingSongID = songID
@@ -125,7 +145,7 @@ final class VoiceRecordingController: NSObject {
         guard isCurrent(generation) else { return }
         guard ready else {
             stopPlayback()
-            errorMessage = "The song could not be paused. Pause it in Music, then try playing your recording again."
+            errorMessage = VoiceRecordingMessage.songNotPausedForPlayback
             return
         }
         do {
@@ -134,6 +154,9 @@ final class VoiceRecordingController: NSObject {
                 errorMessage = "This recording's audio is missing. Restore its audio file or record another take."
                 return
             }
+            #if os(iOS)
+            try activateAudioSession(forRecording: false)
+            #endif
             let newPlayer = try AVAudioPlayer(data: recording.audioData)
             newPlayer.delegate = self
             guard newPlayer.prepareToPlay(), newPlayer.play() else {
@@ -230,12 +253,23 @@ final class VoiceRecordingController: NSObject {
         playingSongID = nil
         playingLineID = nil
         playingRecordingID = nil
+        releaseAudioSessionIfIdle()
     }
 
     func stop() {
         operationGeneration &+= 1
         finishRecording()
         stopPlayback()
+    }
+
+    /// Switching directly between takes keeps the iOS audio session active, so
+    /// other apps are not told to resume between the two actions.
+    private func stopBeforeNextAction() {
+        #if os(iOS)
+        keepsAudioSession = true
+        defer { keepsAudioSession = false }
+        #endif
+        stop()
     }
 
     func reconcile(with songs: [Song]) {
@@ -254,12 +288,52 @@ final class VoiceRecordingController: NSObject {
     }
 
     private func microphonePermission() async -> Bool {
+        #if os(iOS)
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted: return true
+        case .undetermined:
+            return await AVAudioApplication.requestRecordPermission()
+        default: return false
+        }
+        #else
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized: return true
         case .notDetermined:
             return await AVCaptureDevice.requestAccess(for: .audio)
         default: return false
         }
+        #endif
+    }
+
+    #if os(iOS)
+    private func activateAudioSession(forRecording recording: Bool) throws {
+        let session = AVAudioSession.sharedInstance()
+        if restoredAudioSession == nil {
+            restoredAudioSession = AudioSessionConfiguration(
+                category: session.category,
+                mode: session.mode,
+                options: session.categoryOptions
+            )
+        }
+        if recording {
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+        } else {
+            try session.setCategory(.playback, mode: .default)
+        }
+        try session.setActive(true)
+    }
+    #endif
+
+    /// Returns the shared iOS session once no capture or take playback remains.
+    private func releaseAudioSessionIfIdle() {
+        #if os(iOS)
+        guard !keepsAudioSession, recorder == nil, player == nil,
+              let configuration = restoredAudioSession else { return }
+        restoredAudioSession = nil
+        let session = AVAudioSession.sharedInstance()
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        try? session.setCategory(configuration.category, mode: configuration.mode, options: configuration.options)
+        #endif
     }
 
     private func isCurrent(_ generation: UInt64) -> Bool {
@@ -279,6 +353,7 @@ final class VoiceRecordingController: NSObject {
         }
         recordingSongID = nil
         recordingLineID = nil
+        releaseAudioSessionIfIdle()
     }
 
     private func showPendingCapture(_ completed: Capture) {
@@ -354,4 +429,17 @@ extension VoiceRecordingController: AVAudioRecorderDelegate, AVAudioPlayerDelega
         Task { @MainActor [weak self] in self?.playerFinished(identifier, successfully: false) }
     }
 }
-#endif
+
+private enum VoiceRecordingMessage {
+    #if os(iOS)
+    static let microphoneAccessDenied = "Microphone access is required to record your voice. Allow it in Settings > Privacy & Security > Microphone."
+    static let songNotPausedForRecording = "The song could not be paused. Pause it, then try recording again."
+    static let songNotPausedForPlayback = "The song could not be paused. Pause it, then try playing your recording again."
+    static let microphoneUnavailable = "The microphone could not start recording. End any call or other recording, then try again."
+    #else
+    static let microphoneAccessDenied = "Microphone access is required to record your voice. Allow it in System Settings > Privacy & Security > Microphone."
+    static let songNotPausedForRecording = "The song could not be paused. Pause it in Music, then try recording again."
+    static let songNotPausedForPlayback = "The song could not be paused. Pause it in Music, then try playing your recording again."
+    static let microphoneUnavailable = "The microphone could not start recording. Check your audio input in System Settings and try again."
+    #endif
+}

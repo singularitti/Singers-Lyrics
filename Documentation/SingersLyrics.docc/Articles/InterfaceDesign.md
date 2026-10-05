@@ -30,6 +30,8 @@ On iPhone, launch shows the searchable **Music** library. Selecting a song opens
 
 On iPad, the library and selected editor or player occupy two columns. The system sidebar control hides or reveals the library. Narrow multitasking windows use the phone navigation flow.
 
+The library ends with a **Trash** row whose badge counts deleted songs and recordings; it opens Trash as another detail destination. In the editor, the selected lyric card, and any card with takes, shows recording controls below its lyric, and the take list expands inside the card rather than in a sheet.
+
 Playback controls are centered along the bottom of the detail view, above the home indicator. Text size, seeking, play/pause, and resume-following controls stay together. The mode switch remains in the navigation bar. Lyrics wrap to the available width, and the editor makes room for its keyboard and timing dock.
 
 ### Keep controls clear of content

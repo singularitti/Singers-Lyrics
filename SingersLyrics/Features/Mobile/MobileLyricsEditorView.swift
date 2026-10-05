@@ -5,9 +5,11 @@ import UIKit
 struct MobileLyricsEditorView: View {
     @Binding var song: Song
     @Environment(MusicPlaybackModel.self) private var playback
+    @Environment(AppModel.self) private var model
     @AppStorage(PreferenceKey.defaultLyricsFontFamily) private var fallbackFontFamily = ""
     @ScaledMetric(relativeTo: .body) private var lyricFontSize: CGFloat = 18
     @State private var selectedLineID: UUID?
+    @State private var expandedTakesLineID: UUID?
     @State private var editingContext = MobileEditingContext()
     @State private var delay = 0.3
     @State private var preferredTypingStyles: [UUID: TextStyle] = [:]
@@ -67,7 +69,14 @@ struct MobileLyricsEditorView: View {
             selectedLineID = selectedLineID ?? song.lines.first?.id
             ensureLineExists()
         }
+        .onDisappear {
+            // Leaving the editor or switching to the player saves a running take.
+            let voice = model.voiceRecordings
+            if voice.recordingSongID == song.id { voice.finishRecording() }
+            if voice.playingSongID == song.id { voice.stopPlayback() }
+        }
         .onChange(of: song.lines.map(\.id)) { _, ids in
+            if expandedTakesLineID.map(ids.contains) != true { expandedTakesLineID = nil }
             if let selectedLineID, ids.contains(selectedLineID) { return }
             selectedLineID = song.lines.first?.id
         }
@@ -154,6 +163,21 @@ struct MobileLyricsEditorView: View {
                     .strokeBorder(selectedLineID == line.id ? Color.accentColor.opacity(0.5) : Color(uiColor: .separator).opacity(0.28), lineWidth: selectedLineID == line.id ? 1.5 : 0.7)
             }
             .accessibilityIdentifier("mobileLyricEditor-\(index)")
+
+            if showsRecordingControls(for: line) {
+                MobileLineRecordingControls(
+                    songID: song.id,
+                    line: line,
+                    lineNumber: index + 1,
+                    showsTakes: Binding(
+                        get: { expandedTakesLineID == line.id },
+                        set: { expandedTakesLineID = $0 ? line.id : nil }
+                    ),
+                    onSelect: { selectRecording($0, on: line.id) },
+                    onRename: { renameRecording($0, on: line.id, to: $1) },
+                    onDelete: { deleteRecording($0, from: line.id) }
+                )
+            }
         }
         .padding(10)
         .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
@@ -429,6 +453,35 @@ struct MobileLyricsEditorView: View {
 
     private func setTimestamp(_ seconds: Double?, for id: UUID) {
         updateLine(id) { $0.timestampSeconds = seconds.map { max(0, $0) } }
+    }
+
+    private func showsRecordingControls(for line: LyricLine) -> Bool {
+        selectedLineID == line.id || !line.recordings.isEmpty
+            || model.voiceRecordings.isActive(songID: song.id, lineID: line.id)
+    }
+
+    private func selectRecording(_ recordingID: UUID, on lineID: UUID) {
+        guard let index = song.lines.firstIndex(where: { $0.id == lineID }),
+              song.lines[index].selectedRecording?.id != recordingID else { return }
+        song.lines[index].selectedRecordingID = recordingID
+    }
+
+    private func renameRecording(_ recordingID: UUID, on lineID: UUID, to name: String) {
+        updateLine(lineID) { line in
+            guard let index = line.recordings.firstIndex(where: { $0.id == recordingID }) else { return }
+            line.recordings[index].name = name
+        }
+    }
+
+    /// The app model moves the removed take to Trash when the song is replaced.
+    private func deleteRecording(_ recordingID: UUID, from lineID: UUID) {
+        if model.voiceRecordings.playingRecordingID == recordingID {
+            model.voiceRecordings.stopPlayback()
+        }
+        updateLine(lineID) { line in
+            line.recordings.removeAll { $0.id == recordingID }
+            if line.selectedRecordingID == recordingID { line.selectedRecordingID = nil }
+        }
     }
 
     private func stampSelectedLine() {

@@ -77,17 +77,13 @@ final class AppModel {
     private(set) var isLoaded = false
     private(set) var autosaveDisabled = false
     var storageIssue: StorageIssue?
-    #if os(macOS)
     let voiceRecordings = VoiceRecordingController()
-    #endif
 
     init(store: any LibraryStoring) {
         self.store = store
-        #if os(macOS)
         voiceRecordings.onRecordingFinished = { [weak self] songID, lineID, recording in
             self?.appendRecording(recording, songID: songID, lineID: lineID)
         }
-        #endif
     }
 
     func load() async {
@@ -223,9 +219,7 @@ final class AppModel {
 
     func selectSong(_ id: UUID?) {
         isShowingRecordingTrash = false
-        #if os(macOS)
         if id != selectedSongID { voiceRecordings.stop() }
-        #endif
         selectedSongID = id
         selectedSongIDs = id.map { Set([$0]) } ?? []
         persistSelectedSong(id)
@@ -234,9 +228,7 @@ final class AppModel {
     func selectSongs(_ ids: Set<UUID>) {
         isShowingRecordingTrash = false
         let validIDs = ids.intersection(Set(library.songs.map(\.id)))
-        #if os(macOS)
         if validIDs != selectedSongIDs { voiceRecordings.stop() }
-        #endif
         let newlySelectedIDs = validIDs.subtracting(selectedSongIDs)
         selectedSongIDs = validIDs
 
@@ -304,14 +296,12 @@ final class AppModel {
 
     func replaceSong(_ song: Song) {
         guard let index = library.songs.firstIndex(where: { $0.id == song.id }) else { return }
-        #if os(macOS)
         if voiceRecordings.recordingSongID == song.id,
            let recordingLineID = voiceRecordings.recordingLineID,
            !song.lines.contains(where: { $0.id == recordingLineID }) {
             voiceRecordings.finishRecording()
             guard !voiceRecordings.hasUncommittedRecording else { return }
         }
-        #endif
         let existing = library.songs[index]
         var updated = song
         updated.tags = Song.normalizedTags(updated.tags)
@@ -350,13 +340,10 @@ final class AppModel {
         library.songs[index] = updated
         // Undoing a normal deletion restores ownership and takes the item out of Trash.
         library.trashedRecordings.removeAll { remainingIDs.contains($0.id) }
-        #if os(macOS)
         voiceRecordings.reconcile(with: library.songs)
-        #endif
         markChanged()
     }
 
-    #if os(macOS)
     private func appendRecording(_ recording: VoiceRecording, songID: UUID, lineID: UUID) {
         guard let songIndex = library.songs.firstIndex(where: { $0.id == songID }),
               let lineIndex = library.songs[songIndex].lines.firstIndex(where: { $0.id == lineID }) else {
@@ -367,7 +354,6 @@ final class AppModel {
         library.songs[songIndex].updatedAt = Date()
         markChanged()
     }
-    #endif
 
     func toggleFavorite(songID: UUID) {
         guard let index = library.songs.firstIndex(where: { $0.id == songID }) else { return }
@@ -386,12 +372,10 @@ final class AppModel {
     func duplicateSongs(_ ids: Set<UUID>, now: Date = Date()) -> Set<UUID> {
         let validIDs = ids.intersection(Set(library.songs.map(\.id)))
         guard !validIDs.isEmpty else { return [] }
-        #if os(macOS)
         if voiceRecordings.recordingSongID.map(validIDs.contains) == true {
             voiceRecordings.finishRecording()
             guard !voiceRecordings.hasUncommittedRecording else { return [] }
         }
-        #endif
 
         var duplicateIDs: Set<UUID> = []
         library.songs = library.songs.flatMap { song -> [Song] in
@@ -472,12 +456,10 @@ final class AppModel {
         let ids = ids.intersection(Set(library.songs.map(\.id)))
             .subtracting(library.trashedSongs.map(\.id))
         guard !ids.isEmpty else { return }
-        #if os(macOS)
         if voiceRecordings.recordingSongID.map(ids.contains) == true {
             voiceRecordings.finishRecording()
             guard !voiceRecordings.hasUncommittedRecording else { return }
         }
-        #endif
         let deletedAt = Date()
         let siblingOrder = library.songs.map(\.id)
         for (index, song) in library.songs.enumerated() where ids.contains(song.id) {
@@ -489,9 +471,7 @@ final class AppModel {
             ))
         }
         library.songs.removeAll { ids.contains($0.id) }
-        #if os(macOS)
         voiceRecordings.reconcile(with: library.songs)
-        #endif
         selectedSongIDs.subtract(ids)
         if let selectedSongID, ids.contains(selectedSongID) {
             self.selectedSongID = selectedSongIDs.first ?? library.songs.first?.id
@@ -694,9 +674,7 @@ final class AppModel {
 
         guard !restoredIDs.isEmpty else { return [] }
         library.trashedRecordings.removeAll { restoredIDs.contains($0.id) }
-        #if os(macOS)
         voiceRecordings.reconcile(with: library.songs)
-        #endif
         markChanged()
         return restoredIDs
     }

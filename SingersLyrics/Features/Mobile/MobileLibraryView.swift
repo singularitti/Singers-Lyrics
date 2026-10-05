@@ -1,14 +1,17 @@
 #if os(iOS)
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 /// A split view collapses to a library-first navigation stack on iPhone and in
-/// narrow iPad windows. The song's editor/player is one detail destination.
+/// narrow iPad windows. The song's editor/player and Trash are detail destinations.
 struct MobileLibraryView: View {
     let metadataLookup: any TrackMetadataLookingUp
 
     @Environment(AppModel.self) private var model
-    @State private var selection: UUID?
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.openURL) private var openURL
+    @State private var selection: MobileLibraryDestination?
     @State private var visibility = NavigationSplitViewVisibility.all
     @State private var compactColumn = NavigationSplitViewColumn.sidebar
     @State private var search = ""
@@ -75,21 +78,30 @@ struct MobileLibraryView: View {
                     }
                 }
         } detail: {
-            if let selection, let song = binding(for: selection) {
-                MobileSongWorkspace(song: song, metadataLookup: metadataLookup)
-                    .id(selection)
-            } else {
-                ContentUnavailableView(
-                    "Choose a Song",
-                    systemImage: "music.note.list",
-                    description: Text("Select music from your library to edit or play its lyrics.")
-                )
+            switch selection {
+            case .song(let id):
+                if let song = binding(for: id) {
+                    MobileSongWorkspace(song: song, metadataLookup: metadataLookup)
+                        .id(id)
+                } else {
+                    songPlaceholder
+                }
+            case .trash:
+                MobileTrashView()
+            case nil:
+                songPlaceholder
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .onChange(of: selection) { _, id in model.selectSong(id) }
+        .onChange(of: selection) { _, destination in
+            if destination == .trash {
+                model.showRecordingTrash()
+            } else {
+                model.selectSong(destination?.songID)
+            }
+        }
         .onChange(of: model.library.songs.map(\.id)) { _, ids in
-            if let selection, !ids.contains(selection) {
+            if let songID = selection?.songID, !ids.contains(songID) {
                 self.selection = nil
                 compactColumn = .sidebar
             }
@@ -156,6 +168,51 @@ struct MobileLibraryView: View {
             }
             Button("OK", role: .cancel) { model.storageIssue = nil }
         } message: { Text(model.storageIssue?.message ?? "") }
+        .alert("Voice Recording", isPresented: Binding(
+            get: { model.voiceRecordings.errorMessage != nil },
+            set: { if !$0 { model.voiceRecordings.errorMessage = nil } }
+        )) {
+            if model.voiceRecordings.hasUncommittedRecording {
+                Button("Retry Saving") {
+                    Task { @MainActor in
+                        model.voiceRecordings.errorMessage = nil
+                        await Task.yield()
+                        model.voiceRecordings.finishRecording()
+                    }
+                }
+                Button("Discard Recording", role: .destructive) {
+                    model.voiceRecordings.cancelRecording()
+                    model.voiceRecordings.errorMessage = nil
+                }
+                Button("Keep for Later", role: .cancel) {
+                    model.voiceRecordings.errorMessage = nil
+                }
+            } else if model.voiceRecordings.microphoneAccessDenied {
+                Button("Open Settings") {
+                    model.voiceRecordings.errorMessage = nil
+                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                }
+                Button("Cancel", role: .cancel) { model.voiceRecordings.errorMessage = nil }
+            } else {
+                Button("OK", role: .cancel) { model.voiceRecordings.errorMessage = nil }
+            }
+        } message: {
+            Text(model.voiceRecordings.errorMessage ?? "")
+        }
+    }
+
+    private var songPlaceholder: some View {
+        ContentUnavailableView(
+            "Choose a Song",
+            systemImage: "music.note.list",
+            description: Text("Select music from your library to edit or play its lyrics.")
+        )
+    }
+
+    private var showsTrashItem: Bool {
+        // The empty-library overlay offers Trash instead of covering this row.
+        model.isLoaded && !model.library.songs.isEmpty
+            && search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var library: some View {
@@ -168,7 +225,7 @@ struct MobileLibraryView: View {
                 }
             }
             ForEach(songs) { song in
-                NavigationLink(value: song.id) {
+                NavigationLink(value: MobileLibraryDestination.song(song.id)) {
                     HStack(spacing: 12) {
                         Image(systemName: song.isFavorite ? "heart.fill" : "music.note")
                             .font(.title3)
@@ -210,6 +267,27 @@ struct MobileLibraryView: View {
                     .tint(.pink)
                 }
             }
+
+            if showsTrashItem {
+                Section {
+                    NavigationLink(value: MobileLibraryDestination.trash) {
+                        Label("Trash", systemImage: "trash")
+                    }
+                    .badge(model.trashedItemCount)
+                    .accessibilityLabel("Trash, \(model.library.trashedSongs.count) songs, \(model.recordingsInTrash.count) recordings")
+                    .accessibilityIdentifier("mobileTrashItem")
+                }
+            }
+        }
+        .onKeyPress(keys: [.delete, .deleteForward], phases: .down) { press in
+            // Caps Lock and keypad state do not change the meaning of Delete.
+            let modifiers = press.modifiers.subtracting([.capsLock, .numericPad])
+            // A search can hide the selected song; never delete what isn't listed.
+            guard modifiers.isEmpty || modifiers == .command,
+                  let songID = selection?.songID,
+                  songs.contains(where: { $0.id == songID }) else { return .ignored }
+            moveSongToTrash(songID)
+            return .handled
         }
         .overlay {
             if !model.isLoaded {
@@ -223,6 +301,10 @@ struct MobileLibraryView: View {
                     Button("Add Music", systemImage: "plus") { showsNewSong = true }
                         .buttonStyle(.borderedProminent)
                     Button("Import Song Bundle") { showsImporter = true }
+                    if model.trashedItemCount > 0 {
+                        Button("Open Trash", systemImage: "trash") { showTrash() }
+                            .accessibilityIdentifier("mobileEmptyLibraryTrashButton")
+                    }
                 }
             } else if songs.isEmpty {
                 ContentUnavailableView(
@@ -245,13 +327,42 @@ struct MobileLibraryView: View {
     }
 
     private func open(_ id: UUID) {
-        selection = id
+        selection = .song(id)
         model.selectSong(id)
         compactColumn = .detail
     }
 
+    private func showTrash() {
+        selection = .trash
+        compactColumn = .detail
+    }
+
+    /// The hardware Delete key moves the selected song to Trash without the
+    /// swipe confirmation, like the Mac sidebar. On iPad the adjacent visible
+    /// song becomes selected so repeated presses keep working from the keyboard.
+    private func moveSongToTrash(_ id: UUID) {
+        let visibleIDs = songs.map(\.id)
+        model.deleteSong(id)
+        // Deletion is refused while Trash is purging or a take cannot be saved.
+        guard model.song(withID: id) == nil,
+              horizontalSizeClass == .regular,
+              let index = visibleIDs.firstIndex(of: id) else { return }
+        let remainingIDs = visibleIDs.filter { $0 != id }
+        guard !remainingIDs.isEmpty else { return }
+        selection = .song(remainingIDs[min(index, remainingIDs.count - 1)])
+    }
+
     private func export(_ songs: [Song]) {
-        exportDocument = SongBundleFileDocument(bundle: SongBundle(songs: songs))
+        let ids = Set(songs.map(\.id))
+        // Include a running take in the exported document.
+        let voice = model.voiceRecordings
+        if voice.recordingSongID.map(ids.contains) == true {
+            voice.finishRecording()
+            guard !voice.hasUncommittedRecording else { return }
+        }
+        let currentSongs = model.library.songs.filter { ids.contains($0.id) }
+        guard !currentSongs.isEmpty else { return }
+        exportDocument = SongBundleFileDocument(bundle: SongBundle(songs: currentSongs))
         showsExporter = true
     }
 
@@ -264,6 +375,16 @@ struct MobileLibraryView: View {
             favoritesOnly = false
             open(id)
         }
+    }
+}
+
+private enum MobileLibraryDestination: Hashable {
+    case song(UUID)
+    case trash
+
+    var songID: UUID? {
+        guard case .song(let id) = self else { return nil }
+        return id
     }
 }
 #endif
