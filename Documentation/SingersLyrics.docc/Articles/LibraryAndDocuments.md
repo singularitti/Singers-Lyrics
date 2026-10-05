@@ -28,6 +28,8 @@ Initial loads are coalesced so an incoming file-open event can't race a second l
 
 ### Manage Trash
 
+On Mac, select one or more songs in the sidebar and press **Delete** while the sidebar has keyboard focus to move them directly to Trash without a confirmation dialog. Their lyrics and recordings are preserved for restoration. The shortcut also works for song rows under **Recent** and **Favorite**.
+
 Choose **Trash** in the Mac sidebar and switch between its **Songs** and **Recordings** tabs. This is an in-app Trash, separate from macOS Trash; it survives app restarts and has no automatic expiration. Normal song exports include only active songs and exclude both Trash collections.
 
 Click one row, Command-click or Shift-click several, or use **Select All** (Command-A with the list focused). In Songs, **Restore Selected** restores each complete snapshot with stable identities and its original order. It includes display and linked-track metadata, every lyric line, styled text, annotations, timestamps, favorites, tags, and attached recordings. Lines without recordings and songs without recordings are retained and restored too. A recording deleted separately before its song was deleted remains an independent Recordings entry and is not restored with the song.

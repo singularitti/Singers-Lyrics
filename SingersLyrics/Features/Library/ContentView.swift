@@ -447,6 +447,10 @@ struct ContentView: View {
             let songIDs = Set(destinations.compactMap(\.songID))
             if !songIDs.isEmpty { songContextMenu(for: songIDs) }
         }
+        .onDeleteCommand {
+            let songIDs = Set(sidebarSelection.wrappedValue.compactMap(\.songID))
+            model.deleteSongs(songIDs)
+        }
         .listStyle(.sidebar)
         .contentMargins(.horizontal, 0, for: .scrollContent)
         .scrollIndicators(.visible, axes: .vertical)
