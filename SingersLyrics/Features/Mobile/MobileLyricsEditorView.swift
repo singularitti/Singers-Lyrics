@@ -184,51 +184,71 @@ struct MobileLyricsEditorView: View {
     }
 
     private var formattingBar: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 0) {
-                Button { editingContext.undo() } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                        .frame(width: 32, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .disabled(!editingContext.canUndo)
-                .accessibilityLabel("Undo")
-
-                Button { editingContext.redo() } label: {
-                    Image(systemName: "arrow.uturn.forward")
-                        .frame(width: 32, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .disabled(!editingContext.canRedo)
-                .accessibilityLabel("Redo")
-
-                formatButton("bold", label: "Bold", isOn: editingContext.isBold) { editingContext.toggleBold() }
-                formatButton("italic", label: "Italic", isOn: editingContext.isItalic) { editingContext.toggleItalic() }
-                formatButton("underline", label: "Underline", isOn: editingContext.isUnderlined) { editingContext.toggleUnderline() }
-
-                Menu {
-                    Button("Default System Font") { editingContext.applyFontFamily(nil) }
-                    ForEach(["Avenir Next", "Georgia", "Helvetica Neue", "Menlo", "Palatino"], id: \.self) { family in
-                        Button(family) { editingContext.applyFontFamily(family) }
-                    }
-                } label: {
-                    Image(systemName: "textformat")
-                        .frame(width: 32, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .disabled(!editingContext.hasActiveEditor)
-                .accessibilityLabel("Font family")
-
-                Button { showingSymbols = true } label: {
-                    Image(systemName: "character")
-                        .frame(width: 32, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .disabled(!editingContext.hasActiveEditor)
-                .accessibilityLabel("Insert symbol")
+        GeometryReader { geometry in
+            ScrollView(.horizontal) {
+                formattingControls
+                    // Eight 32-point controls fill the visible width evenly, scrolling only when needed.
+                    .frame(width: max(8 * 32, geometry.size.width))
             }
+            .scrollIndicators(.hidden)
         }
-        .scrollIndicators(.hidden)
+        .frame(maxWidth: 320)
+        .frame(height: 44)
+    }
+
+    private var formattingControls: some View {
+        HStack(spacing: 0) {
+            Button { editingContext.undo() } label: {
+                Image(systemName: "arrow.uturn.backward")
+                    .frame(width: 32, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .disabled(!editingContext.canUndo)
+            .accessibilityLabel("Undo")
+            .frame(maxWidth: .infinity)
+
+            Button { editingContext.redo() } label: {
+                Image(systemName: "arrow.uturn.forward")
+                    .frame(width: 32, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .disabled(!editingContext.canRedo)
+            .accessibilityLabel("Redo")
+            .frame(maxWidth: .infinity)
+
+            formatButton("bold", label: "Bold", isOn: editingContext.isBold) { editingContext.toggleBold() }
+                .frame(maxWidth: .infinity)
+            formatButton("italic", label: "Italic", isOn: editingContext.isItalic) { editingContext.toggleItalic() }
+                .frame(maxWidth: .infinity)
+            formatButton("underline", label: "Underline", isOn: editingContext.isUnderlined) { editingContext.toggleUnderline() }
+                .frame(maxWidth: .infinity)
+
+            Menu {
+                Button("Default System Font") { editingContext.applyFontFamily(nil) }
+                ForEach(["Avenir Next", "Georgia", "Helvetica Neue", "Menlo", "Palatino"], id: \.self) { family in
+                    Button(family) { editingContext.applyFontFamily(family) }
+                }
+            } label: {
+                Image(systemName: "textformat")
+                    .frame(width: 32, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .disabled(!editingContext.hasActiveEditor)
+            .accessibilityLabel("Font family")
+            .frame(maxWidth: .infinity)
+
+            Button { showingSymbols = true } label: {
+                Image(systemName: "character")
+                    .frame(width: 32, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .disabled(!editingContext.hasActiveEditor)
+            .accessibilityLabel("Insert symbol")
+            .frame(maxWidth: .infinity)
+
+            textColorPicker
+                .frame(maxWidth: .infinity)
+        }
     }
 
     private var textColorPicker: some View {
@@ -262,12 +282,10 @@ struct MobileLyricsEditorView: View {
     private var timingDock: some View {
         VStack(spacing: 8) {
             if keyboardIsVisible || lyricEditorIsActive {
-                HStack(spacing: 4) {
+                HStack(spacing: 8) {
                     if lyricEditorIsActive {
                         formattingBar
                             .foregroundStyle(.primary)
-                        textColorPicker
-                            .fixedSize(horizontal: true, vertical: false)
                     } else {
                         Spacer(minLength: 0)
                     }
