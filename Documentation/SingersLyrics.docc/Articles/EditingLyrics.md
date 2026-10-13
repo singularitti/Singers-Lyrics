@@ -54,15 +54,17 @@ Restoring a recording while its song is still in Songs Trash restores that compl
 
 Start the linked song, then select a lyric line. Timing controls become available when the player has identified the matching track and is ready for synchronization.
 
-On Mac, press the Space bar outside the text editor, or choose **Tap**, to stamp the selected line and advance. Inside lyric text, the Space bar inserts a space. Choose **Play from Line** to open the linked song if necessary and seek to that line's timestamp.
+On Mac, press the Space bar outside the text editor, or choose the clock-and-timestamp button, to stamp the selected line and advance. Inside lyric text, the Space bar inserts a space. Choose **Play from Line** to open the linked song if necessary and seek to that line's timestamp.
 
 The Mac timing panel includes **Play from Line**, Pause, **Remove Timing**, and Cancel. It supports multiple selected lines, horizontal dragging, precise two-finger trackpad scrolling, and a jog wheel that previews adjustments. Compact layouts arrange adjustment, stamping, and delay controls vertically. Timing changes update the song, autosave, and participate in undo without replacing concurrent text edits.
 
-On iPhone and iPad, the timing controls float above the lyrics. Tap **Stamp** to stamp the selected line and advance. Play/pause, **Clear Timestamp**, and timing options sit at the other end of the row, so rhythmic stamping can't pause the song. Drag the slider below them to move the selected line's timestamp up to half a second earlier or later; it shows the line's time and the shift as you drag. Selecting another line, stamping, or a timing-menu change starts a new adjustment from the line's current time. Open timing options for the stamp delay and 0.1-second adjustments. The text keyboard and formatting controls adapt to the available space.
+On iPhone and iPad, the timing controls share a floating Liquid Glass panel above the lyrics. Tap the clock-and-timestamp button to stamp the selected line and advance. Play/pause, **Clear Timestamp**, and timing options sit at the other end of the row, so rhythmic stamping can't pause the song. When space is narrow, the stamp button moves to its own row. Drag the slider below them to move the selected line's timestamp up to half a second earlier or later; it shows the line's time and the shift as you drag. Selecting another line, stamping, or a timing-menu change starts a new adjustment from the line's current time. Open timing options for the stamp delay and 0.1-second adjustments. The text keyboard and formatting controls adapt to the available space.
 
 ### Follow lyrics during playback
 
 Switch to the player to present the lyrics. Select a lyric or use the playback slider to seek; its times show –:–– until Music reports the song's length. Manual scrolling pauses automatic following. Starting playback, selecting a lyric, seeking, or using **Follow Current Lyric** in the playback controls resumes following.
+
+Use the three alignment icons to place lyrics at the left, center, or right; annotations remain left-aligned with their lyric block. The choice is saved for future sessions. On iPhone and iPad, the backward and forward buttons seek five seconds at a time.
 
 The player can repeat the selected song when it finishes. If playback moves to an unrelated song, the shared playback model stops that playback and freezes lyric progress rather than assigning the new track's position to the selected lyrics.
 

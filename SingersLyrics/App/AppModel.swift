@@ -946,6 +946,7 @@ enum PreferenceKey {
     static let sortMode = "sortMode"
     static let appearance = "appearance"
     static let lyricSize = "lyricSize"
+    static let lyricAlignment = "lyricAlignment"
     static let defaultLyricsFontFamily = "defaultLyricsFontFamily"
     static let editorPanelVisible = "editorPanelVisible"
     static let previewPanelVisible = "previewPanelVisible"
@@ -958,6 +959,7 @@ enum PreferenceKey {
         sortMode,
         appearance,
         lyricSize,
+        lyricAlignment,
         defaultLyricsFontFamily,
         editorPanelVisible,
         previewPanelVisible,

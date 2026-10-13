@@ -22,6 +22,7 @@ struct PlayerView: View {
     @Environment(MusicPlaybackModel.self) private var playback
     @Environment(LogicProRecordingModel.self) private var logicProRecording
     @AppStorage(PreferenceKey.lyricSize) private var lyricSize = 44.0
+    @AppStorage(PreferenceKey.lyricAlignment) private var lyricAlignment = PlayerLyricAlignment.center
     @AppStorage(PreferenceKey.defaultLyricsFontFamily) private var fallbackFontFamily = ""
     @State private var activeIndex: Int?
     @State private var autoFollow = true
@@ -262,12 +263,13 @@ struct PlayerView: View {
                 logicProRecording.startRecording(songID: song.id, isPlaying: playback.isPlaying(song))
             }
         } label: {
-            VStack(alignment: .leading, spacing: 4) {
+            PlayerLyricBlockLayout(spacing: 4) {
                 if !line.annotation.isEmpty {
                     Text(line.annotation)
                         .font(.system(size: annotationSize).italic())
                         .foregroundStyle(isActive ? .secondary : .tertiary)
-                        .fixedSize(horizontal: true, vertical: true)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Text(
                     AttributedTextCodec.makeSwiftUIAttributedString(
@@ -276,13 +278,13 @@ struct PlayerView: View {
                         fallbackFontFamily: fallbackFontFamily.isEmpty ? nil : fallbackFontFamily
                     )
                 )
-                .multilineTextAlignment(.leading)
+                .multilineTextAlignment(lyricAlignment.textAlignment)
                 .fixedSize(horizontal: true, vertical: true)
             }
             .fixedSize(horizontal: true, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(maxWidth: .infinity, alignment: lyricAlignment.frameAlignment)
             .padding(.vertical, 14)
-            .scaleEffect(isActive ? 1.15 : 0.9)
+            .scaleEffect(isActive ? 1.15 : 0.9, anchor: lyricAlignment.scaleAnchor)
             .opacity(activeIndex == nil ? 0.6 : (isActive ? 1 : 0.28))
             .animation(.smooth(duration: 0.45), value: isActive)
         }
@@ -333,21 +335,25 @@ struct PlayerView: View {
             .frame(maxWidth: .infinity)
 
             HStack(spacing: 12) {
-                Button {
-                    lyricSize = max(28, lyricSize - 2)
-                } label: {
-                    Image(systemName: "textformat.size.smaller")
-                }
-                .accessibilityLabel("Smaller lyrics")
-                .accessibilityIdentifier("smallerLyricsButton")
+                HStack(spacing: 2) {
+                    Button {
+                        lyricSize = max(28, lyricSize - 2)
+                    } label: {
+                        Image(systemName: "textformat.size.smaller")
+                    }
+                    .accessibilityLabel("Smaller lyrics")
+                    .accessibilityIdentifier("smallerLyricsButton")
 
-                Button {
-                    lyricSize = min(72, lyricSize + 2)
-                } label: {
-                    Image(systemName: "textformat.size.larger")
+                    Button {
+                        lyricSize = min(72, lyricSize + 2)
+                    } label: {
+                        Image(systemName: "textformat.size.larger")
+                    }
+                    .accessibilityLabel("Larger lyrics")
+                    .accessibilityIdentifier("largerLyricsButton")
                 }
-                .accessibilityLabel("Larger lyrics")
-                .accessibilityIdentifier("largerLyricsButton")
+
+                PlayerLyricAlignmentControls(selection: $lyricAlignment)
 
                 Button {
                     Task {

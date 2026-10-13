@@ -688,15 +688,18 @@ struct LyricsEditorView: View {
 
     private var stampTimingButton: some View {
         TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+            let timestamp = formatTime(playback.interpolatedPosition(for: song, at: context.date))
             Button {
                 stampCurrentLine()
             } label: {
-                Text("Tap · \(formatTime(playback.interpolatedPosition(for: song, at: context.date)))")
+                Label(timestamp, systemImage: "clock.badge.checkmark")
                     .monospacedDigit()
                     .frame(minWidth: 112)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .accessibilityLabel("Stamp current line")
+            .accessibilityValue(timestamp)
             .accessibilityIdentifier("stampTimingButton")
         }
         .fixedSize(horizontal: true, vertical: true)

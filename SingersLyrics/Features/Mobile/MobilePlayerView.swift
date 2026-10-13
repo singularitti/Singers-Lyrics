@@ -8,6 +8,7 @@ struct MobilePlayerView: View {
     @Environment(MusicPlaybackModel.self) private var playback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(PreferenceKey.lyricSize) private var lyricSize = 34.0
+    @AppStorage(PreferenceKey.lyricAlignment) private var lyricAlignment = PlayerLyricAlignment.center
     @AppStorage(PreferenceKey.defaultLyricsFontFamily) private var fallbackFontFamily = ""
     @ScaledMetric(relativeTo: .title) private var typeScale = 1.0
     @State private var activeIndex: Int?
@@ -108,21 +109,22 @@ struct MobilePlayerView: View {
                 await playback.seekAndPlay(song, to: TimingUtilities.timestamp(forLineAt: index, in: song.lines))
             }
         } label: {
-            VStack(spacing: 6) {
+            PlayerLyricBlockLayout(spacing: 6) {
                 if !line.annotation.isEmpty {
                     Text(line.annotation)
                         .font(.system(size: fontSize * 0.6).italic())
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
                 }
                 Text(AttributedTextCodec.makeSwiftUIAttributedString(
                     from: line.lyric,
                     size: fontSize,
                     fallbackFontFamily: fallbackFontFamily.isEmpty ? nil : fallbackFontFamily
                 ))
+                .multilineTextAlignment(lyricAlignment.textAlignment)
                 .fixedSize(horizontal: false, vertical: true)
             }
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: lyricAlignment.frameAlignment)
             .padding(.vertical, 16)
             .opacity(activeIndex == nil || !hasTiming ? 1 : (active ? 1 : 0.42))
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: active)
@@ -168,8 +170,8 @@ struct MobilePlayerView: View {
                     .font(.caption.monospacedDigit())
                     .frame(minWidth: 38, alignment: .trailing)
             }
-            HStack(spacing: 12) {
-                HStack(spacing: 4) {
+            HStack(spacing: 0) {
+                HStack(spacing: 0) {
                     Button { lyricSize = max(24, lyricSize - 2) } label: {
                         Image(systemName: "textformat.size.smaller").frame(width: 44, height: 44)
                     }
@@ -183,43 +185,11 @@ struct MobilePlayerView: View {
                     .accessibilityLabel("Larger Lyrics")
                 }
 
-                HStack(spacing: 8) {
-                    Button {
-                        perform { await playback.seek(song, to: max(0, position - 15)) }
-                    } label: {
-                        Image(systemName: "gobackward.15").font(.title2).frame(width: 44, height: 44)
-                    }
-                    .disabled(duration == nil || isPerformingAction)
-                    .accessibilityLabel("Back 15 seconds")
+                Spacer(minLength: 0)
 
-                    Button {
-                        perform { await playback.togglePlayback(for: song) }
-                    } label: {
-                        ZStack {
-                            if isPerformingAction {
-                                ProgressView().tint(.white)
-                            } else {
-                                Image(systemName: playback.isPlaying(song) ? "pause.fill" : "play.fill")
-                                    .font(.title2)
-                            }
-                        }
-                        .frame(width: 56, height: 56)
-                        .foregroundStyle(.white)
-                        .background(.tint, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isPerformingAction)
-                    .accessibilityLabel(playback.isPlaying(song) ? "Pause" : "Play")
-                    .accessibilityIdentifier("mobilePlayerPlayPause")
+                PlayerLyricAlignmentControls(selection: $lyricAlignment)
 
-                    Button {
-                        perform { await playback.seek(song, to: min(duration ?? 0, position + 15)) }
-                    } label: {
-                        Image(systemName: "goforward.15").font(.title2).frame(width: 44, height: 44)
-                    }
-                    .disabled(duration == nil || isPerformingAction)
-                    .accessibilityLabel("Forward 15 seconds")
-                }
+                Spacer(minLength: 0)
 
                 Button { followRequest = UUID() } label: {
                     Image(systemName: autoFollow ? "location.fill" : "location")
@@ -228,6 +198,44 @@ struct MobilePlayerView: View {
                 .disabled(!hasTiming)
                 .accessibilityLabel("Follow Current Lyric")
                 .accessibilityValue(autoFollow ? "Following" : "Paused while scrolling")
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    perform { await playback.seek(song, to: max(0, position - 5)) }
+                } label: {
+                    Image(systemName: "gobackward.5").font(.title2).frame(width: 44, height: 44)
+                }
+                .disabled(duration == nil || isPerformingAction)
+                .accessibilityLabel("Back 5 seconds")
+
+                Button {
+                    perform { await playback.togglePlayback(for: song) }
+                } label: {
+                    ZStack {
+                        if isPerformingAction {
+                            ProgressView().tint(.white)
+                        } else {
+                            Image(systemName: playback.isPlaying(song) ? "pause.fill" : "play.fill")
+                                .font(.title2)
+                        }
+                    }
+                    .frame(width: 56, height: 56)
+                    .foregroundStyle(.white)
+                    .background(.tint, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isPerformingAction)
+                .accessibilityLabel(playback.isPlaying(song) ? "Pause" : "Play")
+                .accessibilityIdentifier("mobilePlayerPlayPause")
+
+                Button {
+                    perform { await playback.seek(song, to: min(duration ?? 0, position + 5)) }
+                } label: {
+                    Image(systemName: "goforward.5").font(.title2).frame(width: 44, height: 44)
+                }
+                .disabled(duration == nil || isPerformingAction)
+                .accessibilityLabel("Forward 5 seconds")
             }
             .frame(maxWidth: .infinity)
         }

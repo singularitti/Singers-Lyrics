@@ -38,7 +38,8 @@ struct MobileLibraryView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $visibility, preferredCompactColumn: $compactColumn) {
             library
-                .navigationTitle("Music")
+                .navigationTitle("")
+                .navigationBarTitleDisplayMode(.inline)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 310, max: 400)
                 .searchable(text: $search, prompt: "Songs, singers, albums, tags")
                 .toolbar {

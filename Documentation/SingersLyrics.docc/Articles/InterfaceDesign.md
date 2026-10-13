@@ -26,13 +26,13 @@ When the library is empty or nothing is selected, one workspace-wide panel offer
 
 ### Present the mobile workspace
 
-On iPhone, launch shows the searchable **Music** library. Selecting a song opens its editor, which shows the title at the leading edge of the navigation bar, followed by the singer when both fit, like the Mac editor header. The player presents the title and singer above its lyrics instead. The labeled **Player** button at the top right switches that song to presentation mode; **Editor** appears in the same location to return. These are screens in one navigation flow.
+On iPhone, launch shows the searchable song library. The library omits a navigation title and its large-title space. Selecting a song opens its editor, which shows the title at the leading edge of the navigation bar, followed by the singer when both fit, like the Mac editor header. The player presents the title and singer above its lyrics instead. The labeled **Player** button at the top right switches that song to presentation mode; **Editor** appears in the same location to return. These are screens in one navigation flow.
 
-On iPad, the library and selected editor or player occupy two columns. The system sidebar control hides or reveals the library. Narrow multitasking windows use the phone navigation flow.
+On iPad, the library and selected editor or player occupy two columns. The editor title uses the native large-title font at regular widths. The system sidebar control hides or reveals the library. Narrow multitasking windows use the phone navigation flow and compact title size.
 
-The library ends with a **Trash** row whose badge counts deleted songs and recordings; it opens Trash as another detail destination. Song rows show text only, with a heart marking favorites. In the editor, each lyric card gives its annotation the full width. The row below the lyric starts with recording controls on every card and ends with the line's timestamp and actions menu. The take list expands inside the card rather than in a sheet. The editor's timing controls are floating Liquid Glass buttons without a bar background, so on iPad they stay beside the sidebar instead of extending beneath it.
+The library ends with a **Trash** row whose badge counts deleted songs and recordings; it opens Trash as another detail destination. Song rows show text only, with a heart marking favorites. In the editor, each lyric card gives its annotation the full width. The row below the lyric starts with recording controls on every card and ends with the line's timestamp and actions menu. The take list expands inside the card rather than in a sheet. The editor's timing controls and fine-adjustment slider share one rounded Liquid Glass panel within the detail column, so on iPad they stay beside the sidebar instead of extending beneath it. Formatting and keyboard controls use the same panel while editing text.
 
-Playback controls are centered along the bottom of the detail view, above the home indicator. Smaller and larger text, seeking, play/pause, and resume-following controls stay together, and keep the portrait iPhone width in landscape and on iPad. The mode switch remains in the navigation bar. Lyrics wrap to the available width, and the editor makes room for its keyboard and timing dock.
+Playback controls are centered along the bottom of the detail view, above the home indicator. A compact row groups text size, lyric alignment, and resume-following controls above the five-second seek and play/pause buttons. Controls keep the portrait iPhone width in landscape and on iPad. The mode switch remains in the navigation bar. Lyrics wrap to the available width, and the editor makes room for its keyboard and timing dock.
 
 ### Keep controls clear of content
 
@@ -43,6 +43,8 @@ Selecting a card, annotation, or timestamp selects that line for timing. Command
 ### Render and scroll the player
 
 The player presents a centered song title and singer before the lyrics. They scroll with the content but remain outside the timed lyric collection, so the first lyric retains synchronization index zero.
+
+Three alignment icons place lyric blocks at the left, center, or right. Annotations stay left-aligned within their lyric block and wrap to the lyric's width, so longer annotations don't shift the lyric's position. The alignment preference persists between songs and app launches; centered alignment is the default.
 
 Stable row heights and eased scrolling keep the active line readable. The final line can reach the vertical center of the viewport without excess scroll space beyond that position. Bottom clearance adapts to the viewport height.
 

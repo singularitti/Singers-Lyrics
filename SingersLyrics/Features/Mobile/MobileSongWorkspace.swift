@@ -130,19 +130,23 @@ struct MobileSongWorkspace: View {
 private struct MobileSongTitle: View {
     let song: Song
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     private var title: String { song.title.isEmpty ? "Untitled" : song.title }
     private var singer: String { song.artist.isEmpty ? "Unknown Singer" : song.artist }
+    private var titleFont: Font { horizontalSizeClass == .regular ? .largeTitle.bold() : .headline }
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 0) {
-                Text(title).font(.headline)
+                Text(title).font(titleFont)
                 Text(" | ").foregroundStyle(.tertiary)
                 Text(singer).foregroundStyle(.secondary)
             }
-            Text(title).font(.headline)
+            Text(title).font(titleFont)
         }
         .lineLimit(1)
+        .fixedSize(horizontal: false, vertical: true)
         // Leading toolbar items are kept narrow, so the title uses the centered slot. A large
         // ideal width makes the bar give it all the room between its buttons; aligning it
         // to the leading edge of that room keeps it beside the back button instead of centered.
