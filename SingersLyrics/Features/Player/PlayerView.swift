@@ -74,11 +74,13 @@ struct PlayerView: View {
                 .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                 .padding(.horizontal, 20)
             }
-
-            Divider()
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             TimelineView(.animation(minimumInterval: 1 / 30)) { context in
                 transport(position: playback.interpolatedPosition(for: song, at: context.date))
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
         }
         .onAppear {
             playback.startPolling(
@@ -404,9 +406,10 @@ struct PlayerView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: 480)
         .fixedSize(horizontal: false, vertical: true)
-        .background(.bar)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("playerTransport")
     }
