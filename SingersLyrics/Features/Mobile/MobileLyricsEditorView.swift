@@ -11,7 +11,6 @@ struct MobileLyricsEditorView: View {
     @State private var selectedLineID: UUID?
     @State private var expandedTakesLineID: UUID?
     @State private var editingContext = MobileEditingContext()
-    @State private var delay = 0.3
     @State private var preferredTypingStyles: [UUID: TextStyle] = [:]
     @State private var showingSymbols = false
     @State private var requestedTextFocusID: UUID?
@@ -20,8 +19,6 @@ struct MobileLyricsEditorView: View {
     @State private var transportActionInProgress = false
     @State private var fineAdjustment: FineTimingAdjustment?
     @FocusState private var annotationFocus: UUID?
-
-    private let delays = [0.0, 0.1, 0.2, 0.3, 0.5, 1.0]
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -188,17 +185,19 @@ struct MobileLyricsEditorView: View {
 
     private var formattingBar: some View {
         ScrollView(.horizontal) {
-            HStack(spacing: 8) {
+            HStack(spacing: 0) {
                 Button { editingContext.undo() } label: {
                     Image(systemName: "arrow.uturn.backward")
-                        .frame(width: 44, height: 44)
+                        .frame(width: 32, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .disabled(!editingContext.canUndo)
                 .accessibilityLabel("Undo")
 
                 Button { editingContext.redo() } label: {
                     Image(systemName: "arrow.uturn.forward")
-                        .frame(width: 44, height: 44)
+                        .frame(width: 32, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .disabled(!editingContext.canRedo)
                 .accessibilityLabel("Redo")
@@ -207,17 +206,6 @@ struct MobileLyricsEditorView: View {
                 formatButton("italic", label: "Italic", isOn: editingContext.isItalic) { editingContext.toggleItalic() }
                 formatButton("underline", label: "Underline", isOn: editingContext.isUnderlined) { editingContext.toggleUnderline() }
 
-                ColorPicker("Text Color", selection: colorBinding, supportsOpacity: true)
-                    .labelsHidden()
-                    .frame(width: 44, height: 44)
-                    .disabled(!editingContext.hasActiveEditor)
-                    .accessibilityLabel("Text color")
-                    .contextMenu {
-                        Button("Use Default Text Color", systemImage: "circle.lefthalf.filled") {
-                            editingContext.restoreDefaultColor()
-                        }
-                    }
-
                 Menu {
                     Button("Default System Font") { editingContext.applyFontFamily(nil) }
                     ForEach(["Avenir Next", "Georgia", "Helvetica Neue", "Menlo", "Palatino"], id: \.self) { family in
@@ -225,7 +213,7 @@ struct MobileLyricsEditorView: View {
                     }
                 } label: {
                     Image(systemName: "textformat")
-                        .frame(width: 44, height: 44)
+                        .frame(width: 32, height: 44)
                         .contentShape(Rectangle())
                 }
                 .disabled(!editingContext.hasActiveEditor)
@@ -233,15 +221,27 @@ struct MobileLyricsEditorView: View {
 
                 Button { showingSymbols = true } label: {
                     Image(systemName: "character")
-                        .frame(width: 44, height: 44)
+                        .frame(width: 32, height: 44)
                         .contentShape(Rectangle())
                 }
                 .disabled(!editingContext.hasActiveEditor)
                 .accessibilityLabel("Insert symbol")
             }
-            .padding(.horizontal, 4)
         }
         .scrollIndicators(.hidden)
+    }
+
+    private var textColorPicker: some View {
+        ColorPicker("Text Color", selection: colorBinding, supportsOpacity: true)
+            .labelsHidden()
+            .frame(width: 32, height: 44)
+            .disabled(!editingContext.hasActiveEditor)
+            .accessibilityLabel("Text color")
+            .contextMenu {
+                Button("Use Default Text Color", systemImage: "circle.lefthalf.filled") {
+                    editingContext.restoreDefaultColor()
+                }
+            }
     }
 
     private var colorBinding: Binding<Color> {
@@ -262,12 +262,15 @@ struct MobileLyricsEditorView: View {
     private var timingDock: some View {
         VStack(spacing: 8) {
             if keyboardIsVisible || lyricEditorIsActive {
-                HStack(spacing: 8) {
+                HStack(spacing: 4) {
                     if lyricEditorIsActive {
                         formattingBar
                             .foregroundStyle(.primary)
+                        textColorPicker
+                            .fixedSize(horizontal: true, vertical: false)
+                    } else {
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
                     Button { dismissKeyboard() } label: {
                         Text("Done")
                             .font(.subheadline.weight(.semibold))
@@ -275,6 +278,7 @@ struct MobileLyricsEditorView: View {
                             .frame(minWidth: 44, minHeight: 44)
                     }
                     .buttonStyle(.plain)
+                    .fixedSize(horizontal: true, vertical: false)
                 }
             } else {
                 // Play stays away from Stamp, so rhythmic stamping can't pause the song.
@@ -338,22 +342,33 @@ struct MobileLyricsEditorView: View {
             .accessibilityLabel("Clear Timestamp")
             .accessibilityIdentifier("mobileClearTimestampButton")
 
-            Menu {
-                Picker("Stamp delay", selection: $delay) {
-                    ForEach(delays, id: \.self) { option in
-                        Text(String(format: "%.1f seconds", option)).tag(option)
-                    }
-                }
-                Divider()
-                Button("Adjust −0.1 seconds") { adjustSelectedTimestamp(by: -0.1) }
-                Button("Adjust +0.1 seconds") { adjustSelectedTimestamp(by: 0.1) }
-            } label: {
-                Image(systemName: "ellipsis")
+            Button { adjustSelectedTimestamp(by: -0.1) } label: {
+                Text("−0.1")
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
                     .foregroundStyle(.primary)
-                    .frame(width: 44, height: 44)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .frame(width: 48)
+                    .frame(minHeight: 44)
                     .contentShape(Rectangle())
             }
-            .accessibilityLabel("More timing actions")
+            .disabled(selectedLine?.timestampSeconds == nil)
+            .accessibilityLabel("Move timestamp earlier by 0.1 seconds")
+            .accessibilityIdentifier("mobileDecreaseTimestampButton")
+
+            Button { adjustSelectedTimestamp(by: 0.1) } label: {
+                Text("+0.1")
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .frame(width: 48)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .disabled(selectedLine?.timestampSeconds == nil)
+            .accessibilityLabel("Move timestamp later by 0.1 seconds")
+            .accessibilityIdentifier("mobileIncreaseTimestampButton")
         }
     }
 
@@ -376,7 +391,7 @@ struct MobileLyricsEditorView: View {
     }
 
     /// Shifts the selected line's timestamp by up to half a second either way,
-    /// complementing the stamp delay and 0.1-second steps in the timing menu.
+    /// complementing the 0.1-second adjustment buttons.
     private func fineTimingControl(for line: LyricLine) -> some View {
         let lineNumber = (song.lines.firstIndex(where: { $0.id == line.id }) ?? 0) + 1
         let shift = fineTimingShift
@@ -478,7 +493,7 @@ struct MobileLyricsEditorView: View {
 
     private var stampLabel: String {
         let value = playback.interpolatedPosition(for: song)
-        return preciseTime(max(0, value - delay))
+        return preciseTime(max(0, value))
     }
 
     private func formatButton(_ symbol: String, label: String, isOn: Bool, action: @escaping () -> Void) -> some View {
@@ -486,7 +501,7 @@ struct MobileLyricsEditorView: View {
             Image(systemName: symbol)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(isOn ? Color.accentColor : Color.primary)
-                .frame(width: 44, height: 44)
+                .frame(width: 32, height: 44)
                 .background(isOn ? Color.accentColor.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 10))
                 .contentShape(Rectangle())
         }
@@ -594,7 +609,7 @@ struct MobileLyricsEditorView: View {
     private func stampSelectedLine() {
         guard isPlaybackReady else { return }
         guard let id = selectedLineID, let index = song.lines.firstIndex(where: { $0.id == id }) else { return }
-        setTimestamp(max(0, playback.interpolatedPosition(for: song) - delay), for: id)
+        setTimestamp(max(0, playback.interpolatedPosition(for: song)), for: id)
         if index + 1 < song.lines.count { selectedLineID = song.lines[index + 1].id }
     }
 
@@ -604,7 +619,7 @@ struct MobileLyricsEditorView: View {
     }
 
     /// The slider offset is measured from the line's time before its first move.
-    /// Stamping, the timing menu, or selecting another line starts a new adjustment.
+    /// Stamping, the adjustment buttons, or selecting another line starts a new adjustment.
     private func setFineTimingOffset(_ value: Double) {
         guard let line = selectedLine, let timestamp = line.timestampSeconds else { return }
         // Centisecond steps match the displayed precision and keep a zero shift reachable.

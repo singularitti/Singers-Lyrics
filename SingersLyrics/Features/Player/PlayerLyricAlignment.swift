@@ -96,6 +96,8 @@ struct PlayerLyricBlockLayout: Layout {
 
 struct PlayerLyricAlignmentControls: View {
     @Binding var selection: PlayerLyricAlignment
+    var spacing: CGFloat = 2
+    var buttonWidth: CGFloat?
 
     private var buttonSize: CGFloat {
         #if os(iOS)
@@ -106,11 +108,11 @@ struct PlayerLyricAlignmentControls: View {
     }
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: spacing) {
             ForEach(PlayerLyricAlignment.allCases, id: \.self) { alignment in
                 Button { selection = alignment } label: {
                     Image(systemName: alignment.symbol)
-                        .frame(width: buttonSize, height: buttonSize)
+                        .frame(width: buttonWidth ?? buttonSize, height: buttonSize)
                         .foregroundStyle(selection == alignment ? Color.accentColor : Color.primary)
                         .background(
                             selection == alignment ? Color.accentColor.opacity(0.15) : .clear,
