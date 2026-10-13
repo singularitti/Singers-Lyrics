@@ -207,8 +207,6 @@ struct LyricsEditorView: View {
             )
             .layoutPriority(1)
 
-            Spacer(minLength: 0)
-
             if !selectedLineIDs.isEmpty {
                 Button(role: .destructive) {
                     deleteSelectedLines()

@@ -92,25 +92,6 @@ struct FormattingToolbar: View {
                 .frame(width: 1, height: 18)
                 .fixedSize()
 
-            ColorPicker(
-                "Text Color",
-                selection: textColor,
-                supportsOpacity: true
-            )
-            .labelsHidden()
-            .fixedSize()
-            .help("Text Color")
-            .accessibilityLabel("Text Color")
-            .accessibilityIdentifier("textColorPicker")
-            .disabled(!editingContext.hasActiveEditor)
-            .contextMenu {
-                Button {
-                    editingContext.applyColor(nil)
-                } label: {
-                    Label("Use Default Text Color", systemImage: "circle.lefthalf.filled")
-                }
-            }
-
             Menu {
                 ForEach(FontCatalog.availableFamilies, id: \.self) { family in
                     Button(family) {
@@ -140,6 +121,25 @@ struct FormattingToolbar: View {
             .accessibilityLabel("Symbols")
             .accessibilityIdentifier("symbolsButton")
             .disabled(!editingContext.hasActiveEditor)
+
+            ColorPicker(
+                "Text Color",
+                selection: textColor,
+                supportsOpacity: true
+            )
+            .labelsHidden()
+            .fixedSize()
+            .help("Text Color")
+            .accessibilityLabel("Text Color")
+            .accessibilityIdentifier("textColorPicker")
+            .disabled(!editingContext.hasActiveEditor)
+            .contextMenu {
+                Button {
+                    editingContext.applyColor(nil)
+                } label: {
+                    Label("Use Default Text Color", systemImage: "circle.lefthalf.filled")
+                }
+            }
         }
         .fixedSize(horizontal: true, vertical: true)
     }
