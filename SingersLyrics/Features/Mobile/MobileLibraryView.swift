@@ -14,7 +14,6 @@ struct MobileLibraryView: View {
     @State private var selection: MobileLibraryDestination?
     @State private var visibility = NavigationSplitViewVisibility.all
     @State private var compactColumn = NavigationSplitViewColumn.sidebar
-    @State private var isLandscape = false
     @State private var search = ""
     @State private var favoritesOnly = false
     @AppStorage(PreferenceKey.sortMode) private var sortMode = SongSortMode.dateAdded.rawValue
@@ -83,7 +82,7 @@ struct MobileLibraryView: View {
             switch selection {
             case .song(let id):
                 if let song = binding(for: id) {
-                    MobileSongWorkspace(song: song, metadataLookup: metadataLookup, isLandscape: isLandscape)
+                    MobileSongWorkspace(song: song, metadataLookup: metadataLookup)
                         .id(id)
                 } else {
                     songPlaceholder
@@ -95,10 +94,6 @@ struct MobileLibraryView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
-        // Measure the whole window, so the sidebar cannot change the player's orientation.
-        .onGeometryChange(for: Bool.self, of: { $0.size.width > $0.size.height }) {
-            isLandscape = $0
-        }
         .onChange(of: selection) { _, destination in
             if destination == .trash {
                 model.showRecordingTrash()

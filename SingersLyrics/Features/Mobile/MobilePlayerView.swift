@@ -5,7 +5,6 @@ import SwiftUI
 /// iPad, and above the home indicator on iPhone.
 struct MobilePlayerView: View {
     let song: Song
-    let isLandscape: Bool
     @Environment(MusicPlaybackModel.self) private var playback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(PreferenceKey.lyricSize) private var lyricSize = 34.0
@@ -22,6 +21,17 @@ struct MobilePlayerView: View {
 
     private var fontSize: CGFloat { CGFloat(lyricSize * typeScale) }
     private var hasTiming: Bool { song.lines.contains { $0.timestampSeconds != nil } }
+
+    private enum ControlMetrics {
+        static let spacing: CGFloat = 8
+        static let textSizeButtonWidth: CGFloat = 32
+        static let utilityButtonWidth: CGFloat = 44
+        static let playButtonSize: CGFloat = 60
+        static let playbackWidth = utilityButtonWidth * 2 + playButtonSize + spacing * 2
+        static let presentationWidth = textSizeButtonWidth * 2 + spacing
+            + utilityButtonWidth * CGFloat(PlayerLyricAlignment.allCases.count)
+        static let rowWidth = presentationWidth + playbackWidth + utilityButtonWidth + spacing * 2
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -171,48 +181,36 @@ struct MobilePlayerView: View {
                     .font(.caption.monospacedDigit())
                     .frame(minWidth: 38, alignment: .trailing)
             }
-            if isLandscape {
-                ViewThatFits(in: .horizontal) {
-                    widePlayerControls(position: position, duration: duration, alignmentButtonWidth: 44)
-                    widePlayerControls(position: position, duration: duration, alignmentButtonWidth: 32)
-                }
-            } else {
+            ViewThatFits(in: .horizontal) {
+                widePlayerControls(position: position, duration: duration)
                 stackedPlayerControls(position: position, duration: duration)
             }
         }
-        // Use the available column width on landscape devices and larger iPads.
-        .frame(maxWidth: 640)
+        // Fit one complete button row plus padding, regardless of orientation or sidebar state.
+        .frame(maxWidth: ControlMetrics.rowWidth)
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 20))
         .frame(maxWidth: .infinity)
     }
 
-    private func widePlayerControls(
-        position: Double,
-        duration: Double?,
-        alignmentButtonWidth: CGFloat
-    ) -> some View {
-        let sideWidth = 64 + 8 + alignmentButtonWidth * 3
-        return HStack(spacing: 8) {
-            presentationControls(alignmentButtonWidth: alignmentButtonWidth)
-                .frame(minWidth: sideWidth, maxWidth: .infinity, alignment: .leading)
+    private func widePlayerControls(position: Double, duration: Double?) -> some View {
+        HStack(spacing: ControlMetrics.spacing) {
+            presentationControls
 
             playbackButtons(position: position, duration: duration)
-                .frame(minWidth: 164, maxWidth: 200)
+                .frame(width: ControlMetrics.playbackWidth)
 
             followButton
-                .frame(minWidth: sideWidth, maxWidth: .infinity, alignment: .trailing)
         }
-        // Equal side groups keep Play at the dock's midpoint, even with one trailing button.
-        .frame(minWidth: sideWidth * 2 + 164 + 16)
+        .fixedSize(horizontal: true, vertical: false)
         .buttonStyle(.plain)
         .font(.system(size: 17))
     }
 
     private func stackedPlayerControls(position: Double, duration: Double?) -> some View {
         VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                presentationControls(alignmentButtonWidth: 44)
+            HStack(spacing: ControlMetrics.spacing) {
+                presentationControls
 
                 Spacer(minLength: 0)
 
@@ -227,13 +225,13 @@ struct MobilePlayerView: View {
         .font(.system(size: 17))
     }
 
-    private func presentationControls(alignmentButtonWidth: CGFloat) -> some View {
-        HStack(spacing: 8) {
+    private var presentationControls: some View {
+        HStack(spacing: ControlMetrics.spacing) {
             textSizeControls
             PlayerLyricAlignmentControls(
                 selection: $lyricAlignment,
                 spacing: 0,
-                buttonWidth: alignmentButtonWidth
+                buttonWidth: ControlMetrics.utilityButtonWidth
             )
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -243,7 +241,7 @@ struct MobilePlayerView: View {
         HStack(spacing: 0) {
             Button { lyricSize = max(24, lyricSize - 2) } label: {
                 Image(systemName: "textformat.size.smaller")
-                    .frame(width: 32, height: 44)
+                    .frame(width: ControlMetrics.textSizeButtonWidth, height: ControlMetrics.utilityButtonWidth)
                     .contentShape(Rectangle())
             }
             .disabled(lyricSize <= 24)
@@ -251,7 +249,7 @@ struct MobilePlayerView: View {
 
             Button { lyricSize = min(64, lyricSize + 2) } label: {
                 Image(systemName: "textformat.size.larger")
-                    .frame(width: 32, height: 44)
+                    .frame(width: ControlMetrics.textSizeButtonWidth, height: ControlMetrics.utilityButtonWidth)
                     .contentShape(Rectangle())
             }
             .disabled(lyricSize >= 64)
@@ -262,7 +260,7 @@ struct MobilePlayerView: View {
     private var followButton: some View {
         Button { followRequest = UUID() } label: {
             Image(systemName: autoFollow ? "location.fill" : "location")
-                .frame(width: 44, height: 44)
+                .frame(width: ControlMetrics.utilityButtonWidth, height: ControlMetrics.utilityButtonWidth)
                 .contentShape(Rectangle())
         }
         .disabled(!hasTiming)
@@ -277,13 +275,13 @@ struct MobilePlayerView: View {
             } label: {
                 Image(systemName: "gobackward.5")
                     .font(.system(size: 22))
-                    .frame(width: 44, height: 44)
+                    .frame(width: ControlMetrics.utilityButtonWidth, height: ControlMetrics.utilityButtonWidth)
                     .contentShape(Rectangle())
             }
             .disabled(duration == nil || isPerformingAction)
             .accessibilityLabel("Back 5 seconds")
 
-            Spacer(minLength: 8)
+            Spacer(minLength: ControlMetrics.spacing)
 
             Button {
                 perform { await playback.togglePlayback(for: song) }
@@ -296,7 +294,7 @@ struct MobilePlayerView: View {
                             .font(.system(size: 24))
                     }
                 }
-                .frame(width: 60, height: 60)
+                .frame(width: ControlMetrics.playButtonSize, height: ControlMetrics.playButtonSize)
                 .foregroundStyle(.white)
                 .background(.tint, in: Circle())
             }
@@ -304,14 +302,14 @@ struct MobilePlayerView: View {
             .accessibilityLabel(playback.isPlaying(song) ? "Pause" : "Play")
             .accessibilityIdentifier("mobilePlayerPlayPause")
 
-            Spacer(minLength: 8)
+            Spacer(minLength: ControlMetrics.spacing)
 
             Button {
                 perform { await playback.seek(song, to: min(duration ?? 0, position + 5)) }
             } label: {
                 Image(systemName: "goforward.5")
                     .font(.system(size: 22))
-                    .frame(width: 44, height: 44)
+                    .frame(width: ControlMetrics.utilityButtonWidth, height: ControlMetrics.utilityButtonWidth)
                     .contentShape(Rectangle())
             }
             .disabled(duration == nil || isPerformingAction)

@@ -10,7 +10,6 @@ private enum MobileSongMode {
 struct MobileSongWorkspace: View {
     @Binding var song: Song
     let metadataLookup: any TrackMetadataLookingUp
-    let isLandscape: Bool
 
     @Environment(MusicPlaybackModel.self) private var playback
     @Environment(AppModel.self) private var model
@@ -30,7 +29,7 @@ struct MobileSongWorkspace: View {
             case .editor:
                 MobileLyricsEditorView(song: $song)
             case .player:
-                MobilePlayerView(song: song, isLandscape: isLandscape)
+                MobilePlayerView(song: song)
             }
         }
         .navigationTitle(song.title.isEmpty ? "Untitled" : song.title)
