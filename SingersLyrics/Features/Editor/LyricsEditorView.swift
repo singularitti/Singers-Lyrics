@@ -463,6 +463,25 @@ struct LyricsEditorView: View {
     }
 
     private var timingPanel: some View {
+        ViewThatFits(in: .horizontal) {
+            // Hug the complete control rows when they fit, then use the
+            // adaptive rows below for narrower editor columns.
+            timingPanelContent
+                .fixedSize(horizontal: true, vertical: false)
+            timingPanelContent
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .contentShape(RoundedRectangle(cornerRadius: 20))
+        .shadow(color: .black.opacity(0.14), radius: 16, y: 5)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("timingPanel")
+    }
+
+    private var timingPanelContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             ViewThatFits(in: .horizontal) {
                 wideTimingHeader
@@ -476,15 +495,6 @@ struct LyricsEditorView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
-        .contentShape(RoundedRectangle(cornerRadius: 20))
-        .shadow(color: .black.opacity(0.14), radius: 16, y: 5)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("timingPanel")
     }
 
     private var wideTimingHeader: some View {
