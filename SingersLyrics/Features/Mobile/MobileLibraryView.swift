@@ -22,7 +22,6 @@ struct MobileLibraryView: View {
     @State private var showsImporter = false
     @State private var showsExporter = false
     @State private var exportDocument: SongBundleFileDocument?
-    @State private var pendingDeletion: Song?
     @State private var fileError: String?
 
     private var songs: [Song] {
@@ -144,18 +143,6 @@ struct MobileLibraryView: View {
                 catch { fileError = error.localizedDescription }
             }
         }
-        .confirmationDialog(
-            "Move this song and its lyrics to Trash?",
-            isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }),
-            titleVisibility: .visible
-        ) {
-            if let song = pendingDeletion {
-                Button("Delete \(song.title)", role: .destructive) {
-                    model.deleteSong(song.id)
-                    pendingDeletion = nil
-                }
-            }
-        }
         .alert("File Could Not Be Opened or Saved", isPresented: Binding(
             get: { fileError != nil }, set: { if !$0 { fileError = nil } }
         )) {
@@ -258,10 +245,10 @@ struct MobileLibraryView: View {
                         if let id = model.duplicateSongs([song.id]).first { open(id) }
                     }
                     Button("Export Song", systemImage: "square.and.arrow.up") { export([song]) }
-                    Button("Delete", systemImage: "trash", role: .destructive) { pendingDeletion = song }
+                    Button("Delete", systemImage: "trash", role: .destructive) { model.deleteSong(song.id) }
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button("Delete", systemImage: "trash", role: .destructive) { pendingDeletion = song }
+                    Button("Delete", systemImage: "trash", role: .destructive) { model.deleteSong(song.id) }
                 }
                 .swipeActions(edge: .leading) {
                     Button(song.isFavorite ? "Unfavorite" : "Favorite", systemImage: "heart") {
@@ -340,9 +327,9 @@ struct MobileLibraryView: View {
         compactColumn = .detail
     }
 
-    /// The hardware Delete key moves the selected song to Trash without the
-    /// swipe confirmation, like the Mac sidebar. On iPad the adjacent visible
-    /// song becomes selected so repeated presses keep working from the keyboard.
+    /// The hardware Delete key moves the selected song to Trash. On iPad the
+    /// adjacent visible song becomes selected so repeated presses keep working
+    /// from the keyboard.
     private func moveSongToTrash(_ id: UUID) {
         let visibleIDs = songs.map(\.id)
         model.deleteSong(id)
