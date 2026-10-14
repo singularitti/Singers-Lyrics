@@ -1587,7 +1587,7 @@ struct ImportLyricsSheet: View {
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(source.isEmpty)
+                .disabled(parsedLines.isEmpty)
                 .accessibilityIdentifier("confirmLyricsImportButton")
             }
         }

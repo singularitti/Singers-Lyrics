@@ -14,19 +14,13 @@ enum LRCParser {
         let normalizedSource = source
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
-        var rawLines = normalizedSource.split(separator: "\n", omittingEmptySubsequences: false)
-
-        // A conventional final newline terminates the last LRC row; it does not
-        // represent an additional, untimed lyric line.
-        if normalizedSource.hasSuffix("\n"), rawLines.last?.isEmpty == true {
-            rawLines.removeLast()
-        }
-
-        return rawLines.compactMap { parseLine(String($0)) }
+        return normalizedSource.split(separator: "\n").compactMap { parseLine(String($0)) }
     }
 
     private static func parseLine(_ rawLine: String) -> LyricLine? {
         let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
         let fullRange = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
         if metadataExpression.firstMatch(in: trimmed, range: fullRange) != nil {
             return nil
@@ -51,6 +45,8 @@ enum LRCParser {
         let lyric = timestampExpression
             .stringByReplacingMatches(in: rawLine, range: rawRange, withTemplate: "")
             .trimmingCharacters(in: .whitespaces)
+        guard !lyric.isEmpty else { return nil }
+
         var line = LyricLine.blank(text: lyric)
         line.timestampSeconds = Double(minutes * 60 + seconds) + milliseconds
         return line
