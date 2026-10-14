@@ -86,12 +86,8 @@ struct SettingsView: View {
                 .disabled(!model.cloudSync.isAvailable || model.cloudSync.isSelectingFolder)
                 .accessibilityIdentifier("icloudLibrarySyncToggle")
 
-                Text("Keep songs, lyrics, annotations, timing, and voice recordings available on devices using the same iCloud account. A local copy remains available offline.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
                 if !model.cloudSync.isAvailable {
-                    Text("Sync is unavailable for this library or build configuration.")
+                    Text("Sync unavailable")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else if model.cloudSync.usesICloudDrive {
@@ -102,21 +98,16 @@ struct SettingsView: View {
                             .accessibilityIdentifier("icloudConnectedFolderName")
                     }
 
-                    Button(model.cloudSync.hasSyncFolder ? "Choose Folder Again…" : "Choose iCloud Drive Folder…") {
-                        replacesSyncConnection = false
-                        showsSyncFolderPicker = true
+                    Button(hasSyncFolderConnection ? "Change Sync Folder…" : "Choose iCloud Drive Folder…") {
+                        if hasSyncFolderConnection {
+                            confirmsReplacementFolder = true
+                        } else {
+                            replacesSyncConnection = false
+                            showsSyncFolderPicker = true
+                        }
                     }
                     .disabled(model.cloudSync.isSyncing || model.cloudSync.isSelectingFolder)
                     .accessibilityIdentifier("icloudSyncFolderButton")
-
-                    if model.cloudSync.hasSyncFolder || model.cloudSync.canReplaceSyncFolder {
-                        Button(model.cloudSync.canReplaceSyncFolder
-                               ? "Connect a Replacement Folder…" : "Change Sync Folder…") {
-                            confirmsReplacementFolder = true
-                        }
-                        .disabled(model.cloudSync.isSyncing || model.cloudSync.isSelectingFolder)
-                        .accessibilityIdentifier("icloudReplacementFolderButton")
-                    }
 
                     if model.cloudSync.isSelectingFolder {
                         HStack {
@@ -124,13 +115,6 @@ struct SettingsView: View {
                             Text("Connecting to sync folder…")
                         }
                     }
-
-                    Text(model.cloudSync.hasSyncFolder
-                         ? "Library data is stored directly in this folder. Choose this same folder on your other devices. iCloud Drive handles transfers; leave both apps open while changes arrive."
-                         : "In the picker, open iCloud Drive and choose or create a dedicated folder for your library. Data is stored directly in that folder. Choose it on your other devices too.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if model.cloudSync.isAvailable && model.cloudSync.isEnabled {
@@ -138,35 +122,25 @@ struct SettingsView: View {
                         if model.cloudSync.isSyncing {
                             ProgressView().controlSize(.small)
                         }
-                        Text(model.cloudSync.status)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(model.cloudSync.status)
+                            if let date = model.cloudSync.lastSyncedAt {
+                                Text(model.cloudSync.usesICloudDrive
+                                     ? "Last folder check: \(date.formatted(date: .abbreviated, time: .shortened))"
+                                     : "Last synced: \(date.formatted(date: .abbreviated, time: .shortened))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("icloudSyncStatus")
                         Spacer()
                         Button("Sync Now") {
                             Task { await model.cloudSync.syncNow() }
                         }
+                        .fixedSize()
                         .disabled(model.cloudSync.isSyncing)
                         .accessibilityIdentifier("icloudSyncNowButton")
-                    }
-
-                    if let date = model.cloudSync.lastSyncedAt {
-                        Text(model.cloudSync.usesICloudDrive
-                             ? "Last folder check: \(date.formatted(date: .abbreviated, time: .shortened))"
-                             : "Last synced: \(date.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if model.cloudSync.usesICloudDrive, let count = model.cloudSync.lastSyncedSongCount {
-                        Text("Songs at last folder check: \(count)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("icloudSyncedSongCount")
-
-                        if count == 0 {
-                            Text("If your other device has songs, use Change Sync Folder to select the same iCloud Drive folder it uses.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
                     }
                 }
 
@@ -205,11 +179,16 @@ struct SettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Your local songs and recordings will be kept and combined with any library in the folder you choose. To sync with another device, select the same iCloud Drive folder it uses. Existing files in the previous folder will be kept.")
+            Text("Choose the same folder to restore access, or a different folder to change the connection. Your local songs and recordings will be kept and combined with the selected library. Existing files in the previous folder will be kept.")
         }
         #if os(iOS)
         .preferredColorScheme(Appearance(rawValue: appearance)?.colorScheme)
         #endif
+    }
+
+    private var hasSyncFolderConnection: Bool {
+        model.cloudSync.hasSyncFolder || model.cloudSync.canReplaceSyncFolder
+            || model.cloudSync.folderPermissionNotice != nil
     }
 }
 

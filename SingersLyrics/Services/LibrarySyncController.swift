@@ -128,7 +128,7 @@ final class LibrarySyncController {
     }
 
     /// Re-selecting the same folder renews its picker grant. A linked library's
-    /// ancestry is retained, and a different folder binding is rejected.
+    /// ancestry is retained. A different binding requires an explicit change.
     func selectSyncFolder(_ url: URL, replacingConnection: Bool = false) {
         guard isAvailable, usesICloudDrive, !isSelectingFolder else { return }
         do {
@@ -177,12 +177,26 @@ final class LibrarySyncController {
             try checkSelection(selectionGeneration)
             let selection = try await folderStore.select(access)
             try checkSelection(selectionGeneration)
-            let candidateTransport = ICloudDriveLibraryTransport(
+            var candidateTransport = ICloudDriveLibraryTransport(
                 folderURL: selection.access.url,
-                expectedFolderIdentifier: replacingConnection ? nil : checkpoint?.accountIdentifier,
-                expectedRevision: replacingConnection ? nil : checkpoint?.driveRevision
+                expectedFolderIdentifier: checkpoint?.accountIdentifier,
+                expectedRevision: checkpoint?.driveRevision
             )
-            let binding = try await candidateTransport.accountIdentifier()
+            let binding: String
+            var replacesCheckpoint = false
+            do {
+                // Even after confirming a folder change, reselecting the
+                // original folder must retain its baseline and known commits.
+                binding = try await candidateTransport.accountIdentifier()
+            } catch {
+                guard replacingConnection, checkpoint != nil,
+                      let folderError = error as? ICloudDriveSyncError,
+                      folderError == .folderChanged || folderError == .downloadPending else { throw error }
+                try checkSelection(selectionGeneration)
+                candidateTransport = ICloudDriveLibraryTransport(folderURL: selection.access.url)
+                binding = try await candidateTransport.accountIdentifier()
+                replacesCheckpoint = true
+            }
             try checkSelection(selectionGeneration)
             if !replacingConnection, let checkpoint, checkpoint.accountIdentifier != binding {
                 throw ICloudDriveSyncError.folderChanged
@@ -190,7 +204,7 @@ final class LibrarySyncController {
             var connected = checkpoint ?? LibrarySyncCheckpoint(
                 accountIdentifier: binding, environment: cloudEnvironment
             )
-            if replacingConnection {
+            if replacesCheckpoint {
                 guard let local = await prepareLocalLibrary?() else {
                     throw ICloudDriveSyncError.localLibraryNotReady
                 }
@@ -204,7 +218,7 @@ final class LibrarySyncController {
                 )
             }
             connected.folderBookmark = LibrarySyncFolderBookmark(data: selection.bookmark)
-            if replacingConnection { try await checkpointStore.replaceConnection(with: connected) }
+            if replacesCheckpoint { try await checkpointStore.replaceConnection(with: connected) }
             else { try await checkpointStore.save(connected) }
             // The binding and bookmark (including session-only access) commit
             // atomically. Adopt them even if the scene became inactive while

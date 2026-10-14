@@ -25,7 +25,7 @@ enum ICloudDriveSyncError: LocalizedError, Sendable {
         case .folderUnavailable:
             "The sync folder could not be accessed. Choose the folder again and retry. Your local library is preserved."
         case .folderChanged:
-            "The connected sync folder could not be verified. Choose the original folder again, or use Connect a Replacement Folder if you deleted it. Your local library is preserved."
+            "The connected sync folder could not be verified. Use Change Sync Folder to reselect the original folder or connect a replacement. Your local library is preserved."
         case .localLibraryNotReady:
             "The local library is not ready to sync. Finish saving or resolve any library storage issue, then try connecting again."
         case .downloadPending:
