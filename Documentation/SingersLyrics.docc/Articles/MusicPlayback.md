@@ -35,6 +35,8 @@ The shared model polls every 300 milliseconds without overlapping polls and inte
 
 Editing the displayed title or singer doesn't reset the playback session. Unrelated playback leaves lyrics at the beginning. If the player changes to another track during an established session, the model stops playback and freezes the last accepted lyric position. Player mode restarts the selected song from the beginning when it finishes.
 
+On iPhone and iPad, the screen stays awake while the selected song is playing in Player view. Normal Auto-Lock resumes when playback pauses or stops, you leave Player view, or its window becomes inactive, unless another active window or voice recording session still needs the screen awake. Recording and listening to voice takes also keep the screen awake while the app is active.
+
 Operation generations prevent older asynchronous results from updating a newer action or target. Timing controls require a ready, identified session. Seek positions are finite, nonnegative, and bounded by the known duration on iOS.
 
 ### Report playback failures

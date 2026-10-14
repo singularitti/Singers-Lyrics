@@ -40,11 +40,7 @@ struct SingersLyricsIOSApp: App {
                     guard let event else { return }
                     appModel.recordPlayback(songID: event.songID, at: event.startedAt)
                 }
-                .onChange(of: voiceAudioIsActive) { _, isActive in
-                    // Locking the screen backgrounds the app and finishes the take,
-                    // so auto-lock waits while the singer records or listens.
-                    UIApplication.shared.isIdleTimerDisabled = isActive
-                }
+                .keepsScreenAwake(voiceAudioIsActive)
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase != .active else { return }

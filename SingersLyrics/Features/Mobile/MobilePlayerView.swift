@@ -110,6 +110,7 @@ struct MobilePlayerView: View {
             .padding(.bottom, 8)
         }
         .background(Color(uiColor: .systemBackground))
+        .keepsScreenAwake(playback.isPlaying(song))
         .accessibilityIdentifier("mobilePlayer")
     }
 
