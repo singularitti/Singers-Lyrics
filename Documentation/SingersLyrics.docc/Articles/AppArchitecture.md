@@ -6,7 +6,7 @@ Understand the shared document model, platform services, and application lifecyc
 
 SwiftUI supplies navigation, toolbars, menus, sheets, settings, and the workspace. AppKit and UIKit provide the native text editors and platform integration. The app uses Core Image, Core Animation, Foundation, and OSLog where needed. It has no web view, analytics, telemetry, app-hosted backend, or third-party runtime dependencies.
 
-The personal-use workflow favors public native APIs and local storage. It must not require paid developer enrollment, an app-issued developer-token service, or a paid third-party API. Apple Music subscription content remains subject to the subscriber's access, and free device provisioning expires periodically.
+The default personal-use workflow uses public native APIs, local storage, and optional synchronization through a user-selected iCloud Drive folder without requiring paid developer enrollment, an app-issued developer-token service, or a paid third-party API. The alternate CloudKit backend requires paid Apple Developer provisioning. Apple Music subscription content remains subject to the subscriber's access, and free device provisioning expires periodically.
 
 ### Locate the implementation
 
@@ -21,7 +21,7 @@ SingersLyrics/
 │   ├── Sync/            Timestamp adjustment controls
 │   ├── Player/          Mac lyric presentation and transport controls
 │   ├── Mobile/          iPhone and iPad navigation, editing, and playback
-│   └── Settings/        Appearance and fallback-font settings
+│   └── Settings/        Appearance, fallback fonts, and optional iCloud sync
 └── Resources/           Asset catalog and app icon
 ```
 
@@ -67,8 +67,17 @@ The mobile scene manifest permits one window. The library and editor/player scre
 
 SwiftUI manages the iPhone navigation flow and iPad two-column presentation. Native `UITextView` instances provide lyric editing. The Mac app retains its native `NSTextView` integration and desktop window behavior.
 
+### Synchronize the optional cloud library
+
+Standard builds use a system-picked folder, with a private bookmark retaining access across launches. The folder transport stores immutable snapshots with parent identifiers and audio named by its SHA-256 digest. Separate concurrent snapshots survive iCloud Drive's asynchronous transfers; the transport merges their common ancestry before downloading the audio retained by the result. Historical snapshots and audio remain in the folder. File coordination protects provider access, while the snapshot graph handles conflicts across devices.
+
+An opt-in cloud build instead uses the shared container's CloudKit private database. Its conditional manifest save rejects a stale cloud revision; a retry merges the newer version. Both backends share the same coordinator and song merge rules, while retaining separate checkpoints and enablement preferences. Local storage supports offline editing; conflicting song edits become separate copies, and permanent deletion tombstones prevent old identities from reappearing. Incoming changes wait while lyric editing or recording is active; adopting them clears native Undo history.
+
+Sync runs after local saves, when the app becomes active, and periodically while it is active. **Sync Now** requests another pass. A folder save does not confirm upload to another device: iCloud Drive controls transfers. The CloudKit backend uses direct operations without `CKSyncEngine`, subscriptions, or push notifications. Neither backend guarantees immediate convergence or continuous app processing in the background. See <doc:ICloudSync> for setup and operational details.
+
 ## See Also
 
 - <doc:InterfaceDesign>
 - <doc:LibraryAndDocuments>
 - <doc:AppResources>
+- <doc:ICloudSync>

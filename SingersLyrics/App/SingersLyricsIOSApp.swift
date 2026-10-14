@@ -33,6 +33,7 @@ struct SingersLyricsIOSApp: App {
                 .environment(playback)
                 .preferredColorScheme(Appearance(rawValue: appearance)?.colorScheme)
                 .task {
+                    appModel.cloudSync.setActive(scenePhase == .active)
                     await appModel.load()
                     await appModel.backfillLinkedTrackMetadata(using: ITunesTrackMetadataService())
                 }
@@ -43,6 +44,7 @@ struct SingersLyricsIOSApp: App {
                 .keepsScreenAwake(voiceAudioIsActive)
         }
         .onChange(of: scenePhase) { _, phase in
+            appModel.cloudSync.setActive(phase == .active)
             guard phase != .active else { return }
             // Inactive phases include the microphone permission prompt, so only
             // leaving for the background finishes a take before suspension.

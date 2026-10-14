@@ -1,0 +1,13 @@
+// Opt in with xcodebuild -xcconfig Configuration/SingersLyrics-iCloud.xcconfig.
+// Requires paid Apple Developer membership, the shared registered container,
+// and a local development-team selection. Do not put team IDs in this file.
+SINGERSLYRICS_ICLOUD_ENABLED = YES
+SINGERSLYRICS_ICLOUD_ENVIRONMENT = Development
+
+// Only app targets map these settings to CODE_SIGN_*; test targets keep their
+// own signing settings and never receive these CloudKit entitlements.
+SINGERSLYRICS_APP_CODE_SIGN_STYLE = Automatic
+SINGERSLYRICS_APP_CODE_SIGN_IDENTITY = Apple Development
+SINGERSLYRICS_APP_ENTITLEMENTS[sdk=macosx*] = Configuration/SingersLyrics-macOS-iCloud.entitlements
+SINGERSLYRICS_APP_ENTITLEMENTS[sdk=iphoneos*] = Configuration/SingersLyrics-iOS-iCloud.entitlements
+SINGERSLYRICS_APP_ENTITLEMENTS[sdk=iphonesimulator*] = Configuration/SingersLyrics-iOS-iCloud.entitlements

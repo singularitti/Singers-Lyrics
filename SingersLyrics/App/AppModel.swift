@@ -31,6 +31,12 @@ final class AppModel {
     private var isDirty = false
     // Undo snapshots must never resurrect a take after explicit permanent deletion.
     private var permanentlyDeletedRecordingIDs: Set<UUID> = []
+    private struct CloudEditor {
+        var isEditing: () -> Bool
+        var invalidateUndo: () -> Void
+    }
+    @ObservationIgnored private var cloudEditors: [UUID: CloudEditor] = [:]
+    private(set) var cloudRevision: UInt64 = 0
 
     var hasUnsavedChanges: Bool { isDirty }
 
@@ -78,13 +84,75 @@ final class AppModel {
     private(set) var autosaveDisabled = false
     var storageIssue: StorageIssue?
     let voiceRecordings = VoiceRecordingController()
+    let cloudSync: LibrarySyncController
 
     init(store: any LibraryStoring) {
         self.store = store
+        cloudSync = LibrarySyncController(usesPersistentLibrary: store is JSONLibraryStore)
         voiceRecordings.onRecordingFinished = { [weak self] songID, lineID, recording in
             self?.appendRecording(recording, songID: songID, lineID: lineID)
         }
+        cloudSync.prepareLocalLibrary = { [weak self] in
+            guard let self, self.canPrepareCloudChanges else { return nil }
+            await self.flush()
+            guard self.canPrepareCloudChanges, !self.hasUnsavedChanges else { return nil }
+            return self.library
+        }
+        cloudSync.canApplyLibrary = { [weak self] document, original in
+            guard let self, self.canPrepareCloudChanges else { return false }
+            let merged = try LibrarySyncMerge.merge(base: original, local: self.library, remote: document)
+            return merged == self.library || self.canApplyCloudChanges
+        }
+        cloudSync.applyLibrary = { [weak self] document, original in
+            guard let self, self.canPrepareCloudChanges else { return false }
+            // Edits can arrive during a network request. Rebase those edits before
+            // installing a downloaded snapshot, then persist before advancing sync.
+            let merged = try LibrarySyncMerge.merge(base: original, local: self.library, remote: document)
+            if merged != self.library {
+                guard self.canApplyCloudChanges else { return false }
+                for editor in self.cloudEditors.values { editor.invalidateUndo() }
+                self.library = merged
+                self.cloudRevision &+= 1
+                self.permanentlyDeletedRecordingIDs.formUnion(merged.permanentlyDeletedRecordingIDs)
+                self.voiceRecordings.reconcile(with: merged.songs)
+                let availableIDs = Set(merged.songs.map(\.id))
+                self.selectedSongIDs.formIntersection(availableIDs)
+                if let selected = self.selectedSongID, !availableIDs.contains(selected) {
+                    self.selectSong(merged.songs.first?.id)
+                }
+                #if os(macOS)
+                // Native undo snapshots predate the incoming data and can otherwise
+                // replace remote edits or restore permanently removed recordings.
+                for window in NSApp?.windows ?? [] { window.undoManager?.removeAllActions() }
+                #endif
+                self.markChanged()
+            }
+            await self.flush()
+            return !self.autosaveDisabled && !self.hasUnsavedChanges
+        }
     }
+
+    private var canPrepareCloudChanges: Bool {
+        isLoaded && !autosaveDisabled && !isPermanentlyDeletingTrash
+            && !voiceRecordings.hasUncommittedRecording && !voiceRecordings.isPreparing
+    }
+
+    private var canApplyCloudChanges: Bool {
+        canPrepareCloudChanges && !cloudEditors.values.contains { $0.isEditing() }
+    }
+
+    func registerCloudEditor(
+        id: UUID, isEditing: @escaping () -> Bool, invalidateUndo: @escaping () -> Void
+    ) {
+        cloudEditors[id] = CloudEditor(isEditing: isEditing, invalidateUndo: invalidateUndo)
+    }
+
+    func unregisterCloudEditor(id: UUID) {
+        cloudEditors.removeValue(forKey: id)
+        cloudEditorDidEndEditing()
+    }
+
+    func cloudEditorDidEndEditing() { cloudSync.libraryDidSave() }
 
     func load() async {
         guard !isLoaded else { return }
@@ -103,6 +171,7 @@ final class AppModel {
             guard !isLoaded else { return }
             library = document
             permanentlyDeletedRecordingIDs = Set(document.trashedRecordings.filter(\.isPendingPermanentDeletion).map(\.id))
+                .union(document.permanentlyDeletedRecordingIDs)
                 .union(document.trashedSongs.filter(\.isPendingPermanentDeletion).flatMap { entry in
                     entry.song.lines.flatMap { $0.recordings.map(\.id) }
                 })
@@ -124,6 +193,7 @@ final class AppModel {
         }
         isLoaded = true
         loadTask = nil
+        if !autosaveDisabled { cloudSync.start() }
     }
 
     func backfillLinkedTrackMetadata(using lookup: any TrackMetadataLookingUp) async {
@@ -406,7 +476,7 @@ final class AppModel {
         guard !songs.isEmpty else { return [] }
 
         let retainedSongs = library.songs + library.trashedSongs.map(\.song)
-        var occupiedSongIDs = Set(retainedSongs.map(\.id))
+        var occupiedSongIDs = Set(retainedSongs.map(\.id)).union(library.permanentlyDeletedSongIDs)
         var occupiedLineIDs = Set(retainedSongs.flatMap { $0.lines.map(\.id) })
         var occupiedRecordingIDs = Set(retainedSongs.flatMap { $0.lines.flatMap { $0.recordings.map(\.id) } })
             .union(library.trashedRecordings.map(\.id))
@@ -492,6 +562,7 @@ final class AppModel {
         guard !isPermanentlyDeletingTrash, !ids.isEmpty else { return [] }
         let candidates = library.trashedSongs.filter {
             ids.contains($0.id) && !$0.isPendingPermanentDeletion
+                && !library.permanentlyDeletedSongIDs.contains($0.id)
         }.sorted { lhs, rhs in
             if lhs.originalIndex != rhs.originalIndex { return lhs.originalIndex < rhs.originalIndex }
             return lhs.id.uuidString < rhs.id.uuidString
@@ -566,6 +637,7 @@ final class AppModel {
     @discardableResult
     func restoreRecordings(_ ids: Set<UUID>) -> Set<UUID> {
         guard !isPermanentlyDeletingTrash, !ids.isEmpty else { return [] }
+        rebindRecordingsOfPermanentlyDeletedSongs(restoring: ids)
         let requested = recordingsInTrash.filter {
             ids.contains($0.id) && !$0.isPendingPermanentDeletion
                 && !permanentlyDeletedRecordingIDs.contains($0.id) && !$0.recording.audioData.isEmpty
@@ -679,6 +751,34 @@ final class AppModel {
         return restoredIDs
     }
 
+    /// A song purge deliberately retains takes already in the Recordings tab.
+    /// Explicitly restoring one creates a new parent, without undoing the purge.
+    private func rebindRecordingsOfPermanentlyDeletedSongs(restoring ids: Set<UUID>) {
+        let parents = Set(library.trashedRecordings.filter {
+            ids.contains($0.id) && !$0.isPendingPermanentDeletion
+                && !permanentlyDeletedRecordingIDs.contains($0.id)
+                && !$0.recording.audioData.isEmpty
+        }.map(\.songID)).intersection(library.permanentlyDeletedSongIDs)
+        guard !parents.isEmpty else { return }
+        for parent in parents {
+            var recoveredID = LibrarySyncMerge.recoverySongID(forDeletedSongID: parent)
+            while library.permanentlyDeletedSongIDs.contains(recoveredID) {
+                recoveredID = LibrarySyncMerge.recoverySongID(forDeletedSongID: recoveredID)
+            }
+            // Rebind the remaining independent takes too: one lyric line must
+            // retain the same parent when only some of its takes are restored.
+            for index in library.trashedRecordings.indices where library.trashedRecordings[index].songID == parent {
+                library.trashedRecordings[index].songID = recoveredID
+                if var context = library.trashedRecordings[index].restorationContext {
+                    context.song.id = recoveredID
+                    context.songOrder = context.songOrder.map { $0 == parent ? recoveredID : $0 }
+                    library.trashedRecordings[index].restorationContext = context
+                }
+            }
+        }
+        markChanged()
+    }
+
     private static func restoredInsertionIndex(
         for id: UUID,
         siblingOrder: [UUID],
@@ -731,6 +831,7 @@ final class AppModel {
             !individualIDs.contains($0.id)
         })
         permanentlyDeletedRecordingIDs.formUnion(selectedIDs)
+        library.permanentlyDeletedRecordingIDs.formUnion(selectedIDs)
         for index in library.trashedRecordings.indices where selectedIDs.contains(library.trashedRecordings[index].id) {
             library.trashedRecordings[index].isPendingPermanentDeletion = true
             library.trashedRecordings[index].recording.audioData = Data()
@@ -782,11 +883,13 @@ final class AppModel {
 
         isPermanentlyDeletingSongs = true
         defer { isPermanentlyDeletingSongs = false }
+        library.permanentlyDeletedSongIDs.formUnion(selectedIDs)
         for index in library.trashedSongs.indices where selectedIDs.contains(library.trashedSongs[index].id) {
             library.trashedSongs[index].isPendingPermanentDeletion = true
             for lineIndex in library.trashedSongs[index].song.lines.indices {
                 let recordings = library.trashedSongs[index].song.lines[lineIndex].recordings
                 permanentlyDeletedRecordingIDs.formUnion(recordings.map(\.id))
+                library.permanentlyDeletedRecordingIDs.formUnion(recordings.map(\.id))
                 for recordingIndex in recordings.indices {
                     library.trashedSongs[index].song.lines[lineIndex].recordings[recordingIndex].audioData = Data()
                 }
@@ -927,6 +1030,7 @@ final class AppModel {
                 try await store.save(snapshot)
                 // Finishing a take can add edits while an older snapshot is being saved.
                 if self?.library == snapshot { self?.isDirty = false }
+                self?.cloudSync.libraryDidSave()
             } catch {
                 self?.autosaveDisabled = true
                 self?.storageIssue = StorageIssue(

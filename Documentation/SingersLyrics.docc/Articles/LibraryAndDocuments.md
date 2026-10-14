@@ -4,7 +4,7 @@ Store songs locally, exchange them between platforms, and preserve data when a l
 
 ## Overview
 
-The Mac and iOS targets share the local library model and version-2 song document package. Each installation has its own library. There is no automatic cloud synchronization.
+The Mac and iOS targets share the local library model and version-2 song document package. Each installation retains its own local library. Optional iCloud Drive sync combines these libraries through a folder selected on each device, including in free Personal Team builds. A separately provisioned CloudKit backend is also available. Sync starts only after you enable it in Settings. See <doc:ICloudSync>.
 
 The app starts with an empty library and doesn't search for, read, import, or modify the legacy Glaze library or `songs.json`.
 
@@ -32,7 +32,7 @@ On Mac, select one or more songs in the sidebar and press **Delete** while the s
 
 On iPad with a hardware keyboard, select a song in the library and press **Delete** (or Forward Delete or Command-Delete) while the library list has keyboard focus. The song moves directly to Trash without the swipe confirmation, and the next song in the visible list becomes selected so you can keep reviewing or deleting from the keyboard. Use the arrow keys or Tab to move keyboard focus to the library. Swiping or the context menu still asks for confirmation.
 
-Choose **Trash** in the Mac sidebar, or at the bottom of the iPhone and iPad library, and switch between its **Songs** and **Recordings** tabs. When every song has been deleted, the empty library offers **Open Trash** instead. This is an in-app Trash, separate from macOS Trash and the Files app's Recently Deleted; it survives app restarts and has no automatic expiration. Each installation keeps its own Trash. Normal song exports include only active songs and exclude both Trash collections.
+Choose **Trash** in the Mac sidebar, or at the bottom of the iPhone and iPad library, and switch between its **Songs** and **Recordings** tabs. When every song has been deleted, the empty library offers **Open Trash** instead. This is an in-app Trash, separate from macOS Trash and the Files app's Recently Deleted; it survives app restarts and has no automatic expiration. Optional iCloud sync includes both Trash collections and permanent deletion state. Normal song exports include only active songs and exclude both Trash collections.
 
 On Mac, click one row, Command-click or Shift-click several, or use **Select All** (Command-A with the list focused). On iPhone and iPad, swipe right on a row to restore it or left to delete it permanently, or touch and hold rows for both actions. Tap **Select** to choose several rows, **Select All** (Command-A with a keyboard), then **Restore** or **Delete** in the bottom toolbar. In Songs, **Restore Selected** restores each complete snapshot with stable identities and its original order. It includes display and linked-track metadata, every lyric line, styled text, annotations, timestamps, favorites, tags, and attached recordings. Lines without recordings and songs without recordings are retained and restored too. A recording deleted separately before its song was deleted remains an independent Recordings entry and is not restored with the song.
 
@@ -63,7 +63,7 @@ Song.singerslyrics/
 
 The manifest has `format: "app.singerslyrics.song-bundle"`, `formatVersion: 2`, and a `songs` array. Each line's `recordings` array contains `id`, `name`, `createdAt`, and `duration` in seconds; `selectedRecordingID` identifies the default take for Play. The audio path is derived from the three owning UUIDs. Recordings use AAC audio in an MPEG-4 container. An empty `recordings` directory is included when there are no takes.
 
-Version-1 JSON song exports are not accepted by the new document importer. Missing audio, duplicate identities, invalid take selections, unsupported versions, and symbolic links in required package files are rejected before the library changes. Import identity reservations include active songs and both Trash collections, so an imported document cannot reuse identities needed for restoration. Trash does not change the version-2 portable format. Stable identities and separate audio files prepare this format for future synchronization; iCloud transport, conflict resolution, and deletion propagation are not implemented.
+Version-1 JSON song exports are not accepted by the new document importer. Missing audio, duplicate identities, invalid take selections, unsupported versions, and symbolic links in required package files are rejected before the library changes. Import identity reservations include active songs and both Trash collections, so an imported document cannot reuse identities needed for restoration. Trash and optional iCloud synchronization do not change the version-2 portable format. Portable exports remain useful for explicit transfer and backups.
 
 Share or AirDrop a package from Mac, then open it in Singers Lyrics on iPhone or iPad. You can also choose **Import Song Bundle** and select it in Files. An empty library offers the same creation and import actions as the library's add menu. Recordings work in both directions: takes recorded on iPhone or iPad travel in exported packages just like takes recorded on Mac. Exporting a song while one of its takes is recording finishes and includes that take first.
 
@@ -86,3 +86,4 @@ On Mac, use the recovery action to reveal the library in Finder and preserve a c
 - <doc:EditingLyrics>
 - <doc:AppArchitecture>
 - <doc:Testing>
+- <doc:ICloudSync>

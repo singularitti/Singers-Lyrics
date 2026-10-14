@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>SingersLyricsCloudKitEnabled</key>
+	<string>$(SINGERSLYRICS_ICLOUD_ENABLED)</string>
+	<key>SingersLyricsCloudKitEnvironment</key>
+	<string>$(SINGERSLYRICS_ICLOUD_ENVIRONMENT)</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Record voice notes for your lyric annotations. Recordings stay in your library and are included when you export a song bundle.</string>
 	<key>UTExportedTypeDeclarations</key>

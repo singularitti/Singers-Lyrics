@@ -74,7 +74,18 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 
 The application is written to `/tmp/singerslyrics-ios-build/Build/Products/Debug-iphonesimulator/Singers Lyrics iOS.app`. This command compiles without signing or launching a simulator. A simulator build can't be installed on a physical iPhone or iPad; use the device workflow above.
 
+### Sync with iCloud Drive
+
+The standard app builds support library synchronization through a user-selected folder in iCloud Drive. In **Settings → iCloud**, choose the same folder on each device and enable **Sync Library with iCloud**. This works with local ad hoc Mac signing and a free Personal Team on iOS; no CloudKit capabilities or paid membership are needed.
+
+### Use the optional CloudKit backend
+
+The default app configurations set `SINGERSLYRICS_ICLOUD_ENABLED=NO` and include no CloudKit entitlements. This setting selects the folder backend; it does not disable iCloud Drive sync. The opt-in CloudKit configuration instead uses a private database, requiring a paid Apple Developer team, properly provisioned apps, and one shared registered container for both bundle identifiers.
+
+See <doc:ICloudSync> for folder setup and the advanced CloudKit configuration. Devices using different backends do not exchange changes; choose the same backend on both.
+
 ## See Also
 
 - <doc:Testing>
 - <doc:Troubleshooting>
+- <doc:ICloudSync>

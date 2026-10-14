@@ -15,6 +15,7 @@ The documentation is a standalone [Swift-DocC](https://www.swift.org/documentati
 | Understand playback APIs and offline limits | [Playing music](SingersLyrics.docc/Articles/MusicPlayback.md) |
 | Record Logic Pro takes from the Mac player | [Recording in Logic Pro](SingersLyrics.docc/Articles/LogicProRecording.md) |
 | Store, transfer, and recover songs | [Managing library documents](SingersLyrics.docc/Articles/LibraryAndDocuments.md) |
+| Enable optional library sync across devices | [Synchronizing the library with iCloud](SingersLyrics.docc/Articles/ICloudSync.md) |
 | Validate changes | [Testing the app](SingersLyrics.docc/Articles/Testing.md) |
 | Resolve device and playback issues | [Troubleshooting](SingersLyrics.docc/Articles/Troubleshooting.md) |
 | Review asset provenance | [App resources](SingersLyrics.docc/Articles/AppResources.md) |

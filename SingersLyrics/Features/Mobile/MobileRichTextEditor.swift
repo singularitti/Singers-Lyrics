@@ -4,6 +4,7 @@ import UIKit
 
 @MainActor
 struct MobileRichTextEditor: UIViewRepresentable {
+    @Environment(AppModel.self) private var model
     @Binding var value: StyledText
     let lineID: UUID
     let editingContext: MobileEditingContext
@@ -17,10 +18,11 @@ struct MobileRichTextEditor: UIViewRepresentable {
     let onEditingChanged: (Bool) -> Void
     let onSplit: (StyledText, StyledText, TextStyle) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self, model: model) }
 
     static func dismantleUIView(_ textView: UITextView, coordinator: Coordinator) {
         coordinator.parent.editingContext.remove(textView)
+        coordinator.model.unregisterCloudEditor(id: coordinator.cloudEditorID)
     }
 
     func makeUIView(context: Context) -> UITextView {
@@ -47,6 +49,13 @@ struct MobileRichTextEditor: UIViewRepresentable {
         if value.plainText.isEmpty {
             textView.typingAttributes = scaledTypingAttributes
         }
+        model.registerCloudEditor(
+            id: context.coordinator.cloudEditorID,
+            isEditing: { [weak textView] in
+                textView?.isFirstResponder == true || textView?.markedTextRange != nil
+            },
+            invalidateUndo: { [weak textView] in textView?.undoManager?.removeAllActions() }
+        )
         return textView
     }
 
@@ -54,23 +63,7 @@ struct MobileRichTextEditor: UIViewRepresentable {
         context.coordinator.parent = self
         editingContext.fallbackFontFamily = fallbackFontFamily
         textView.accessibilityIdentifier = "mobileRichText-\(lineID.uuidString)"
-        let current = AttributedTextCodec.makeStyledText(from: textView.attributedText)
-        let appearanceChanged = context.coordinator.lastFontSize != fontSize
-            || context.coordinator.lastFallbackFontFamily != fallbackFontFamily
-        // Keep UIKit's live selection and marked text intact while this editor owns focus.
-        if textView.markedTextRange == nil,
-           (current != value && !textView.isFirstResponder || appearanceChanged && current == value) {
-            let selection = textView.selectedRange
-            context.coordinator.isApplyingModel = true
-            textView.attributedText = makeDisplayText(value)
-            if value.plainText.isEmpty {
-                textView.typingAttributes = scaledTypingAttributes
-            }
-            textView.selectedRange = NSRange(location: min(selection.location, textView.attributedText.length), length: min(selection.length, max(0, textView.attributedText.length - min(selection.location, textView.attributedText.length))))
-            context.coordinator.isApplyingModel = false
-        }
-        context.coordinator.lastFontSize = fontSize
-        context.coordinator.lastFallbackFontFamily = fallbackFontFamily
+        context.coordinator.updateText(textView)
         if isSelected, !textView.isFirstResponder {
             textView.accessibilityTraits.insert(.selected)
         } else {
@@ -106,12 +99,47 @@ struct MobileRichTextEditor: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: MobileRichTextEditor
+        let model: AppModel
+        let cloudEditorID = UUID()
+        var appliedCloudRevision: UInt64
         var isApplyingModel = false
         var pendingFocus = false
         var lastFontSize: CGFloat?
         var lastFallbackFontFamily: String?
 
-        init(parent: MobileRichTextEditor) { self.parent = parent }
+        init(parent: MobileRichTextEditor, model: AppModel) {
+            self.parent = parent
+            self.model = model
+            appliedCloudRevision = model.cloudRevision
+        }
+
+        func updateText(_ textView: UITextView) {
+            let cloudChanged = appliedCloudRevision != model.cloudRevision
+            let current = AttributedTextCodec.makeStyledText(from: textView.attributedText)
+            let appearanceChanged = lastFontSize != parent.fontSize
+                || lastFallbackFontFamily != parent.fallbackFontFamily
+            // A merged cloud revision must also refresh an editor that regained
+            // focus before SwiftUI delivered this update. Preserve IME text.
+            if textView.markedTextRange == nil,
+               cloudChanged || (current != parent.value && !textView.isFirstResponder)
+                || (appearanceChanged && current == parent.value) {
+                let selection = textView.selectedRange
+                isApplyingModel = true
+                textView.attributedText = parent.makeDisplayText(parent.value)
+                if parent.value.plainText.isEmpty {
+                    textView.typingAttributes = parent.scaledTypingAttributes
+                }
+                let length = textView.attributedText.length
+                let location = min(selection.location, length)
+                textView.selectedRange = NSRange(location: location, length: min(selection.length, length - location))
+                if cloudChanged { textView.undoManager?.removeAllActions() }
+                appliedCloudRevision = model.cloudRevision
+                lastFontSize = parent.fontSize
+                lastFallbackFontFamily = parent.fallbackFontFamily
+                isApplyingModel = false
+                parent.editingContext.selectionDidChange(textView)
+            }
+        }
 
         func requestFocus(on textView: UITextView) {
             pendingFocus = true
@@ -130,6 +158,7 @@ struct MobileRichTextEditor: UIViewRepresentable {
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
+            if appliedCloudRevision != model.cloudRevision { updateText(textView) }
             parent.onActivate()
             parent.onEditingChanged(true)
             parent.editingContext.attach(textView) { [weak self, weak textView] in
@@ -140,21 +169,23 @@ struct MobileRichTextEditor: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             guard !isApplyingModel else { return }
-            parent.value = AttributedTextCodec.makeStyledText(from: textView.attributedText)
+            persist(textView)
             parent.editingContext.editorDidChange(textView)
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
-            guard textView.isFirstResponder else { return }
+            guard !isApplyingModel, textView.isFirstResponder else { return }
             parent.editingContext.selectionDidChange(textView)
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
             persist(textView)
             parent.onEditingChanged(false)
+            model.cloudEditorDidEndEditing()
         }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            guard !isApplyingModel, appliedCloudRevision == model.cloudRevision else { return false }
             guard text == "\n" else { return true }
             let attributed = NSMutableAttributedString(attributedString: textView.attributedText)
             let location = min(range.location, attributed.length)
@@ -180,7 +211,7 @@ struct MobileRichTextEditor: UIViewRepresentable {
         }
 
         private func persist(_ textView: UITextView) {
-            guard !isApplyingModel else { return }
+            guard !isApplyingModel, appliedCloudRevision == model.cloudRevision else { return }
             parent.value = AttributedTextCodec.makeStyledText(from: textView.attributedText)
         }
     }

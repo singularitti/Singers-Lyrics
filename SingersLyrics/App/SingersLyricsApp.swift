@@ -87,6 +87,7 @@ struct SingersLyricsApp: App {
 
         Settings {
             SettingsView()
+                .environment(appModel)
                 .environment(logicProRecording)
                 .frame(width: 460)
                 .padding()
@@ -261,10 +262,12 @@ private struct AppRootView: View {
             }
             .background { LogicProTakeMonitor() }
             .task {
+                model.cloudSync.setActive(scenePhase == .active)
                 await model.load()
                 await model.backfillLinkedTrackMetadata(using: metadataLookup)
             }
             .onChange(of: scenePhase) { _, phase in
+                model.cloudSync.setActive(phase == .active)
                 guard phase != .active else { return }
                 Task { await model.flush() }
             }

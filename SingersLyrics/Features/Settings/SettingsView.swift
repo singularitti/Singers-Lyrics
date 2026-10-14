@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
 #endif
@@ -38,8 +39,12 @@ enum Appearance: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
+    @Environment(AppModel.self) private var model
     @AppStorage(PreferenceKey.appearance) private var appearance = Appearance.system.rawValue
     @AppStorage(PreferenceKey.defaultLyricsFontFamily) private var defaultLyricsFontFamily = ""
+    @State private var showsSyncFolderPicker = false
+    @State private var confirmsReplacementFolder = false
+    @State private var replacesSyncConnection = false
 
     var body: some View {
         Form {
@@ -66,12 +71,142 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            Section("iCloud") {
+                Toggle("Sync Library with iCloud", isOn: Binding(
+                    get: { model.cloudSync.isEnabled },
+                    set: { enabled in
+                        if enabled && model.cloudSync.usesICloudDrive && !model.cloudSync.hasSyncFolder {
+                            replacesSyncConnection = false
+                            showsSyncFolderPicker = true
+                        } else {
+                            model.cloudSync.setEnabled(enabled)
+                        }
+                    }
+                ))
+                .disabled(!model.cloudSync.isAvailable || model.cloudSync.isSelectingFolder)
+                .accessibilityIdentifier("icloudLibrarySyncToggle")
+
+                Text("Keep songs, lyrics, annotations, timing, and voice recordings available on devices using the same iCloud account. A local copy remains available offline.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if !model.cloudSync.isAvailable {
+                    Text("Sync is unavailable for this library or build configuration.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if model.cloudSync.usesICloudDrive {
+                    if let folderName = model.cloudSync.syncFolderName {
+                        Text("Connected folder: \(folderName)")
+                            .font(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("icloudConnectedFolderName")
+                    }
+
+                    Button(model.cloudSync.hasSyncFolder ? "Choose Folder Again…" : "Choose iCloud Drive Folder…") {
+                        replacesSyncConnection = false
+                        showsSyncFolderPicker = true
+                    }
+                    .disabled(model.cloudSync.isSyncing || model.cloudSync.isSelectingFolder)
+                    .accessibilityIdentifier("icloudSyncFolderButton")
+
+                    if model.cloudSync.hasSyncFolder || model.cloudSync.canReplaceSyncFolder {
+                        Button(model.cloudSync.canReplaceSyncFolder
+                               ? "Connect a Replacement Folder…" : "Change Sync Folder…") {
+                            confirmsReplacementFolder = true
+                        }
+                        .disabled(model.cloudSync.isSyncing || model.cloudSync.isSelectingFolder)
+                        .accessibilityIdentifier("icloudReplacementFolderButton")
+                    }
+
+                    if model.cloudSync.isSelectingFolder {
+                        HStack {
+                            ProgressView().controlSize(.small)
+                            Text("Connecting to sync folder…")
+                        }
+                    }
+
+                    Text(model.cloudSync.hasSyncFolder
+                         ? "Library data is stored directly in this folder. Choose this same folder on your other devices. iCloud Drive handles transfers; leave both apps open while changes arrive."
+                         : "In the picker, open iCloud Drive and choose or create a dedicated folder for your library. Data is stored directly in that folder. Choose it on your other devices too.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if model.cloudSync.isAvailable && model.cloudSync.isEnabled {
+                    HStack {
+                        if model.cloudSync.isSyncing {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(model.cloudSync.status)
+                        Spacer()
+                        Button("Sync Now") {
+                            Task { await model.cloudSync.syncNow() }
+                        }
+                        .disabled(model.cloudSync.isSyncing)
+                        .accessibilityIdentifier("icloudSyncNowButton")
+                    }
+
+                    if let date = model.cloudSync.lastSyncedAt {
+                        Text(model.cloudSync.usesICloudDrive
+                             ? "Last folder check: \(date.formatted(date: .abbreviated, time: .shortened))"
+                             : "Last synced: \(date.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if model.cloudSync.usesICloudDrive, let count = model.cloudSync.lastSyncedSongCount {
+                        Text("Songs at last folder check: \(count)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("icloudSyncedSongCount")
+
+                        if count == 0 {
+                            Text("If your other device has songs, use Change Sync Folder to select the same iCloud Drive folder it uses.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+
+                if let notice = model.cloudSync.folderPermissionNotice {
+                    Label(notice, systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("icloudFolderPermissionNotice")
+                }
+
+                if let message = model.cloudSync.errorMessage {
+                    Label(message, systemImage: "exclamationmark.icloud")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             #if os(macOS)
             LogicProSettingsSection()
             #endif
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
+        .fileImporter(isPresented: $showsSyncFolderPicker, allowedContentTypes: [.folder]) { result in
+            let replacing = replacesSyncConnection
+            replacesSyncConnection = false
+            guard case .success(let url) = result else { return }
+            model.cloudSync.selectSyncFolder(url, replacingConnection: replacing)
+        }
+        .alert("Change the connected sync folder?", isPresented: $confirmsReplacementFolder) {
+            Button("Choose Folder…") {
+                replacesSyncConnection = true
+                showsSyncFolderPicker = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your local songs and recordings will be kept and combined with any library in the folder you choose. To sync with another device, select the same iCloud Drive folder it uses. Existing files in the previous folder will be kept.")
+        }
         #if os(iOS)
         .preferredColorScheme(Appearance(rawValue: appearance)?.colorScheme)
         #endif

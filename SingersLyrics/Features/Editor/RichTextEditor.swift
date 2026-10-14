@@ -3,6 +3,7 @@ import SwiftUI
 
 @MainActor
 struct RichTextEditor: NSViewRepresentable {
+    @Environment(AppModel.self) private var model
     @Binding var value: StyledText
     let lineID: UUID
     let accessibilityIdentifier: String
@@ -15,12 +16,14 @@ struct RichTextEditor: NSViewRepresentable {
     let onSplit: (StyledText, StyledText, TextStyle) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
+        Coordinator(parent: self, model: model)
     }
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
-        coordinator.parent.editingContext.remove(textView)
+        if let textView = scrollView.documentView as? NSTextView {
+            coordinator.parent.editingContext.remove(textView)
+        }
+        coordinator.model.unregisterCloudEditor(id: coordinator.cloudEditorID)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -68,8 +71,24 @@ struct RichTextEditor: NSViewRepresentable {
             guard let coordinator, let textView else { return }
             coordinator.activate(textView)
         }
+        textView.onResignFirstResponder = { [weak coordinator = context.coordinator, weak textView] in
+            guard let coordinator, let textView else { return }
+            coordinator.endEditing(textView)
+        }
         scrollView.documentView = textView
         context.coordinator.textView = textView
+        model.registerCloudEditor(
+            id: context.coordinator.cloudEditorID,
+            isEditing: { [weak textView] in
+                guard let textView else { return false }
+                return textView.hasMarkedText()
+                    || (textView.window?.isKeyWindow == true && textView.window?.firstResponder === textView)
+            },
+            invalidateUndo: { [weak textView, weak coordinator = context.coordinator] in
+                textView?.undoManager?.removeAllActions()
+                coordinator?.parent.editingContext.historyDidChange()
+            }
+        )
         return scrollView
     }
 
@@ -77,23 +96,7 @@ struct RichTextEditor: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? LineTextView else { return }
         textView.setAccessibilityIdentifier(accessibilityIdentifier)
-        let current = AttributedTextCodec.makeStyledText(from: textView.attributedString())
-        if current != value, textView.window?.firstResponder !== textView {
-            context.coordinator.isApplyingModel = true
-            textView.textStorage?.setAttributedString(
-                AttributedTextCodec.makeAttributedString(
-                    from: value,
-                    fallbackFontFamily: fallbackFontFamily
-                )
-            )
-            if value.plainText.isEmpty {
-                textView.typingAttributes = AttributedTextCodec.makeAttributes(
-                    from: preferredTypingStyle ?? .plain,
-                    fallbackFontFamily: fallbackFontFamily
-                )
-            }
-            context.coordinator.isApplyingModel = false
-        }
+        context.coordinator.updateText(textView)
         if focusRequested, textView.window?.firstResponder !== textView {
             Task { @MainActor [weak coordinator = context.coordinator, weak textView] in
                 guard let coordinator, let textView, coordinator.parent.focusRequested else { return }
@@ -126,11 +129,46 @@ struct RichTextEditor: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: RichTextEditor
+        let model: AppModel
+        let cloudEditorID = UUID()
         weak var textView: NSTextView?
         var isApplyingModel = false
+        var appliedCloudRevision: UInt64
 
-        init(parent: RichTextEditor) {
+        init(parent: RichTextEditor, model: AppModel) {
             self.parent = parent
+            self.model = model
+            appliedCloudRevision = model.cloudRevision
+        }
+
+        func updateText(_ textView: NSTextView) {
+            let cloudChanged = appliedCloudRevision != model.cloudRevision
+            let current = AttributedTextCodec.makeStyledText(from: textView.attributedString())
+            // An inactive window can retain its first responder. A cloud revision
+            // must refresh that retained editor before it can write back old text.
+            guard !textView.hasMarkedText(),
+                  cloudChanged || (current != parent.value && textView.window?.firstResponder !== textView) else { return }
+            isApplyingModel = true
+            let selection = textView.selectedRange()
+            textView.textStorage?.setAttributedString(
+                AttributedTextCodec.makeAttributedString(
+                    from: parent.value,
+                    fallbackFontFamily: parent.fallbackFontFamily
+                )
+            )
+            if parent.value.plainText.isEmpty {
+                textView.typingAttributes = AttributedTextCodec.makeAttributes(
+                    from: parent.preferredTypingStyle ?? .plain,
+                    fallbackFontFamily: parent.fallbackFontFamily
+                )
+            }
+            let length = textView.string.utf16.count
+            let location = min(selection.location, length)
+            textView.setSelectedRange(NSRange(location: location, length: min(selection.length, length - location)))
+            if cloudChanged { textView.undoManager?.removeAllActions() }
+            appliedCloudRevision = model.cloudRevision
+            isApplyingModel = false
+            parent.editingContext.selectionDidChange(in: textView)
         }
 
         func textDidBeginEditing(_ notification: Notification) {
@@ -139,6 +177,8 @@ struct RichTextEditor: NSViewRepresentable {
         }
 
         func activate(_ textView: NSTextView) {
+            guard !isApplyingModel else { return }
+            if appliedCloudRevision != model.cloudRevision { updateText(textView) }
             parent.onActivate()
             parent.editingContext.attach(textView) { [weak self, weak textView] in
                 guard let self, let textView else { return }
@@ -148,11 +188,21 @@ struct RichTextEditor: NSViewRepresentable {
 
         func textDidEndEditing(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            endEditing(textView)
+        }
+
+        func endEditing(_ textView: NSTextView) {
+            persist(textView)
             parent.editingContext.detach(textView)
+            // NSWindow installs the next responder after resignFirstResponder
+            // returns, so retry the deferred download on the next main turn.
+            Task { @MainActor [weak self] in
+                self?.model.cloudEditorDidEndEditing()
+            }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView,
+            guard !isApplyingModel, let textView = notification.object as? NSTextView,
                   textView.window?.firstResponder === textView else { return }
             activate(textView)
         }
@@ -164,11 +214,12 @@ struct RichTextEditor: NSViewRepresentable {
         }
 
         private func persist(_ textView: NSTextView) {
-            guard !isApplyingModel else { return }
+            guard !isApplyingModel, appliedCloudRevision == model.cloudRevision else { return }
             parent.value = AttributedTextCodec.makeStyledText(from: textView.attributedString())
         }
 
         func split(textView: NSTextView, selection: NSRange) {
+            guard !isApplyingModel, appliedCloudRevision == model.cloudRevision else { return }
             let edited = NSMutableAttributedString(attributedString: textView.attributedString())
             let validSelection = NSIntersectionRange(
                 selection,
@@ -209,6 +260,7 @@ struct RichTextEditor: NSViewRepresentable {
 private final class LineTextView: NSTextView {
     var onReturn: ((NSRange) -> Void)?
     var onBecomeFirstResponder: (() -> Void)?
+    var onResignFirstResponder: (() -> Void)?
 
     override func becomeFirstResponder() -> Bool {
         let becameFirstResponder = super.becomeFirstResponder()
@@ -216,6 +268,12 @@ private final class LineTextView: NSTextView {
             onBecomeFirstResponder?()
         }
         return becameFirstResponder
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { onResignFirstResponder?() }
+        return resigned
     }
 
     override func keyDown(with event: NSEvent) {

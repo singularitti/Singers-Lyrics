@@ -7,21 +7,29 @@ struct LibraryDocument: Codable, Equatable, Sendable {
     var songs: [Song]
     var trashedRecordings: [TrashedRecording]
     var trashedSongs: [TrashedSong]
+    // Retain deletion identities so an offline device cannot resurrect purged data.
+    var permanentlyDeletedSongIDs: Set<UUID>
+    var permanentlyDeletedRecordingIDs: Set<UUID>
 
     init(
         schemaVersion: Int = Self.currentSchemaVersion,
         songs: [Song] = [],
         trashedRecordings: [TrashedRecording] = [],
-        trashedSongs: [TrashedSong] = []
+        trashedSongs: [TrashedSong] = [],
+        permanentlyDeletedSongIDs: Set<UUID> = [],
+        permanentlyDeletedRecordingIDs: Set<UUID> = []
     ) {
         self.schemaVersion = schemaVersion
         self.songs = songs
         self.trashedRecordings = trashedRecordings
         self.trashedSongs = trashedSongs
+        self.permanentlyDeletedSongIDs = permanentlyDeletedSongIDs
+        self.permanentlyDeletedRecordingIDs = permanentlyDeletedRecordingIDs
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, songs, trashedRecordings, trashedSongs
+        case permanentlyDeletedSongIDs, permanentlyDeletedRecordingIDs
     }
 
     init(from decoder: Decoder) throws {
@@ -32,8 +40,27 @@ struct LibraryDocument: Codable, Equatable, Sendable {
             trashedRecordings: try container.decodeIfPresent(
                 [TrashedRecording].self, forKey: .trashedRecordings
             ) ?? [],
-            trashedSongs: try container.decodeIfPresent([TrashedSong].self, forKey: .trashedSongs) ?? []
+            trashedSongs: try container.decodeIfPresent([TrashedSong].self, forKey: .trashedSongs) ?? [],
+            permanentlyDeletedSongIDs: try container.decodeIfPresent(
+                Set<UUID>.self, forKey: .permanentlyDeletedSongIDs
+            ) ?? [],
+            permanentlyDeletedRecordingIDs: try container.decodeIfPresent(
+                Set<UUID>.self, forKey: .permanentlyDeletedRecordingIDs
+            ) ?? []
         )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(songs, forKey: .songs)
+        try container.encode(trashedRecordings, forKey: .trashedRecordings)
+        try container.encode(trashedSongs, forKey: .trashedSongs)
+        // Canonical ordering makes change detection stable across processes.
+        try container.encode(permanentlyDeletedSongIDs.sorted { $0.uuidString < $1.uuidString },
+                             forKey: .permanentlyDeletedSongIDs)
+        try container.encode(permanentlyDeletedRecordingIDs.sorted { $0.uuidString < $1.uuidString },
+                             forKey: .permanentlyDeletedRecordingIDs)
     }
 }
 
