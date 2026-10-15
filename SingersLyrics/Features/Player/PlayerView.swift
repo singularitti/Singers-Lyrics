@@ -3,7 +3,7 @@ import SwiftUI
 
 enum PlayerTypography {
     static func annotationSize(for lyricSize: Double) -> CGFloat {
-        CGFloat(lyricSize) * 0.6
+        CGFloat(lyricSize) * 0.5
     }
 
     static func titleSize(for lyricSize: Double) -> CGFloat {
@@ -21,6 +21,7 @@ struct PlayerView: View {
 
     @Environment(MusicPlaybackModel.self) private var playback
     @Environment(LogicProRecordingModel.self) private var logicProRecording
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(PreferenceKey.lyricSize) private var lyricSize = 44.0
     @AppStorage(PreferenceKey.lyricAlignment) private var lyricAlignment = PlayerLyricAlignment.center
     @AppStorage(PreferenceKey.defaultLyricsFontFamily) private var fallbackFontFamily = ""
@@ -280,14 +281,16 @@ struct PlayerView: View {
         activeIndex = next
         if force { autoFollow = true }
         guard autoFollow, let next, song.lines.indices.contains(next) else { return }
-        withAnimation(.easeInOut(duration: 0.5)) {
+        var transaction = Transaction(animation: reduceMotion ? nil : PlayerLyricEmphasis.motionAnimation)
+        transaction.isContinuous = true
+        withTransaction(transaction) {
             proxy.scrollTo(song.lines[next].id, anchor: .center)
         }
     }
 
     private func lyricRow(_ line: LyricLine, index: Int) -> some View {
         let isActive = activeIndex == index
-        let emphasisScale: CGFloat = isActive ? 1.15 : 0.9
+        let emphasisScale: CGFloat = reduceMotion ? 1 : PlayerLyricEmphasis.scale(isActive: isActive)
         return Button {
             guard !pinchPlaybackLock.isLocked else { return }
             Task {
@@ -299,12 +302,15 @@ struct PlayerView: View {
                 logicProRecording.startRecording(songID: song.id, isPlaying: playback.isPlaying(song))
             }
         } label: {
-            PlayerLyricScaleLayout(scale: emphasisScale, anchor: lyricAlignment.scaleAnchor) {
+            PlayerLyricScaleLayout(
+                maximumScale: PlayerLyricEmphasis.activeScale,
+                anchor: lyricAlignment.scaleAnchor
+            ) {
                 PlayerLyricBlockLayout(spacing: 4) {
                     if !line.annotation.isEmpty {
                         Text(line.annotation)
                             .font(.system(size: annotationSize).italic())
-                            .foregroundStyle(isActive ? .secondary : .tertiary)
+                            .foregroundStyle(.secondary)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -321,11 +327,12 @@ struct PlayerView: View {
                 }
                 .fixedSize(horizontal: true, vertical: true)
                 .scaleEffect(emphasisScale, anchor: lyricAlignment.scaleAnchor)
+                .animation(reduceMotion ? nil : PlayerLyricEmphasis.motionAnimation, value: isActive)
             }
             .frame(maxWidth: .infinity, alignment: lyricAlignment.frameAlignment)
             .padding(.vertical, lyricSpacing.rowPadding)
             .opacity(PlayerLyricEmphasis.opacity(isActive: isActive))
-            .animation(.smooth(duration: 0.45), value: isActive)
+            .animation(reduceMotion ? nil : PlayerLyricEmphasis.highlightAnimation, value: isActive)
         }
         .buttonStyle(.plain)
         .disabled(pinchPlaybackLock.isLocked)

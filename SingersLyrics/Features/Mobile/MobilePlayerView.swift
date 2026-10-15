@@ -96,7 +96,7 @@ struct MobilePlayerView: View {
                     }
                 }
                 .background {
-                    TimelineView(.animation(minimumInterval: 1 / 15)) { context in
+                    TimelineView(.animation(minimumInterval: 1 / 30)) { context in
                         Color.clear
                             .onChange(of: playback.activeLyricIndex(
                                 for: song,
@@ -160,7 +160,7 @@ struct MobilePlayerView: View {
             PlayerLyricBlockLayout(spacing: 6) {
                 if !line.annotation.isEmpty {
                     Text(line.annotation)
-                        .font(.system(size: fontSize * 0.6).italic())
+                        .font(.system(size: fontSize * 0.5).italic())
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
                 }
@@ -177,7 +177,7 @@ struct MobilePlayerView: View {
             .frame(maxWidth: .infinity, minHeight: 44, alignment: lyricAlignment.frameAlignment)
             .contentShape(Rectangle())
             .opacity(PlayerLyricEmphasis.opacity(isActive: active))
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: active)
+            .animation(reduceMotion ? nil : PlayerLyricEmphasis.highlightAnimation, value: active)
         }
         .buttonStyle(.plain)
         .disabled(!hasTiming || isPerformingAction || pinchPlaybackLock.isLocked)
@@ -304,7 +304,9 @@ struct MobilePlayerView: View {
         guard force || index != activeIndex else { return }
         activeIndex = index
         guard autoFollow, let index, song.lines.indices.contains(index) else { return }
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.45)) {
+        var transaction = Transaction(animation: reduceMotion ? nil : PlayerLyricEmphasis.motionAnimation)
+        transaction.isContinuous = true
+        withTransaction(transaction) {
             proxy.scrollTo(song.lines[index].id, anchor: .center)
         }
     }
