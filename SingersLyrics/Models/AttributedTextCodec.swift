@@ -151,7 +151,34 @@ enum AttributedTextCodec {
         size: CGFloat = 17,
         fallbackFontFamily: String? = nil
     ) -> [NSAttributedString.Key: Any] {
-        #if os(macOS)
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: makeFont(from: style, size: size, fallbackFontFamily: fallbackFontFamily),
+        ]
+        // Preserve the fallback choice even when the platform resolves a
+        // script such as Chinese to a concrete display font.
+        if style.fontFamily == nil {
+            attributes[.singersLyricsFallbackFont] = true
+        }
+        #if os(iOS)
+        if let family = style.fontFamily {
+            attributes[.singersLyricsStoredFontFamily] = family
+        }
+        attributes[.singersLyricsStoredBold] = style.bold
+        attributes[.singersLyricsStoredItalic] = style.italic
+        #endif
+        attributes.merge(colorAttributes(for: style.foregroundColor)) { _, new in new }
+        if style.underline {
+            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        }
+        return attributes
+    }
+
+    #if os(macOS)
+    private static func makeFont(
+        from style: TextStyle,
+        size: CGFloat,
+        fallbackFontFamily: String?
+    ) -> NSFont {
         let fontManager = NSFontManager.shared
         var traits: NSFontTraitMask = []
         if style.bold { traits.insert(.boldFontMask) }
@@ -185,45 +212,26 @@ enum AttributedTextCodec {
             font = system
         }
 
-        var attributes: [NSAttributedString.Key: Any] = [.font: font]
-        // A nil family means “use the user's fallback choice”, including the
-        // system default. Keep that semantic marker even when AppKit resolves
-        // a script such as Chinese to a concrete display font.
-        if style.fontFamily == nil {
-            attributes[.singersLyricsFallbackFont] = true
-        }
-        attributes.merge(colorAttributes(for: style.foregroundColor)) { _, new in new }
-        if style.underline {
-            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
-        }
-        return attributes
-        #elseif os(iOS)
+        return font
+    }
+    #elseif os(iOS)
+    private static func makeFont(
+        from style: TextStyle,
+        size: CGFloat,
+        fallbackFontFamily: String?
+    ) -> UIFont {
         let normalizedFallback = fallbackFontFamily?.trimmingCharacters(in: .whitespacesAndNewlines)
         let selectedFamily = style.fontFamily
             ?? (normalizedFallback?.isEmpty == false ? normalizedFallback : nil)
 
-        let font = makeUIKitFont(
+        return makeUIKitFont(
             family: selectedFamily,
             size: size,
             bold: style.bold,
             italic: style.italic
         )
-
-        var attributes: [NSAttributedString.Key: Any] = [.font: font]
-        if style.fontFamily == nil {
-            attributes[.singersLyricsFallbackFont] = true
-        } else {
-            attributes[.singersLyricsStoredFontFamily] = style.fontFamily
-        }
-        attributes[.singersLyricsStoredBold] = style.bold
-        attributes[.singersLyricsStoredItalic] = style.italic
-        attributes.merge(colorAttributes(for: style.foregroundColor)) { _, new in new }
-        if style.underline {
-            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
-        }
-        return attributes
-        #endif
     }
+    #endif
 
     static func makeStyledText(from attributedString: NSAttributedString) -> StyledText {
         guard attributedString.length > 0 else { return StyledText(runs: []) }
@@ -305,25 +313,31 @@ enum AttributedTextCodec {
         size: CGFloat,
         fallbackFontFamily: String? = nil
     ) -> AttributedString {
-        let platformValue = NSMutableAttributedString(
-            attributedString: makeAttributedString(
-                from: styledText,
+        // Pinching changes the size every frame. Build display attributes
+        // directly, without editor-only metadata, mutable copies, or bridging.
+        var output = AttributedString()
+        for run in styledText.runs where !run.text.isEmpty {
+            var attributes = AttributeContainer()
+            attributes.font = Font(makeFont(
+                from: run.style,
                 size: size,
                 fallbackFontFamily: fallbackFontFamily
-            )
-        )
-        let fullRange = NSRange(location: 0, length: platformValue.length)
-        platformValue.removeAttribute(.singersLyricsAdaptiveForeground, range: fullRange)
-        platformValue.removeAttribute(.singersLyricsStoredForeground, range: fullRange)
-        platformValue.removeAttribute(.singersLyricsFallbackFont, range: fullRange)
-        platformValue.removeAttribute(.singersLyricsStoredFontFamily, range: fullRange)
-        platformValue.removeAttribute(.singersLyricsStoredBold, range: fullRange)
-        platformValue.removeAttribute(.singersLyricsStoredItalic, range: fullRange)
-        #if os(macOS)
-        return (try? AttributedString(platformValue, including: \.appKit)) ?? AttributedString(styledText.plainText)
-        #elseif os(iOS)
-        return (try? AttributedString(platformValue, including: \.uiKit)) ?? AttributedString(styledText.plainText)
-        #endif
+            ))
+            if let color = run.style.foregroundColor {
+                #if os(macOS)
+                attributes.foregroundColor = Color(nsColor: TextColorPalette.displayColor(for: color))
+                #elseif os(iOS)
+                attributes.foregroundColor = Color(uiColor: TextColorPalette.displayColor(for: color))
+                #endif
+            } else {
+                attributes.foregroundColor = .primary
+            }
+            if run.style.underline {
+                attributes.underlineStyle = .single
+            }
+            output.append(AttributedString(run.text, attributes: attributes))
+        }
+        return output
     }
 
     #if os(iOS)

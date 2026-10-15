@@ -24,6 +24,8 @@ struct PlayerView: View {
     @AppStorage(PreferenceKey.lyricSize) private var lyricSize = 44.0
     @AppStorage(PreferenceKey.lyricAlignment) private var lyricAlignment = PlayerLyricAlignment.center
     @AppStorage(PreferenceKey.defaultLyricsFontFamily) private var fallbackFontFamily = ""
+    @GestureState private var lyricMagnification: CGFloat?
+    @State private var pinchPlaybackLock = PlayerPinchPlaybackLock()
     @State private var activeIndex: Int?
     @State private var autoFollow = true
     @State private var lastLineHeight: CGFloat = 0
@@ -32,9 +34,10 @@ struct PlayerView: View {
     @State private var scrubPosition = 0.0
     @State private var pollingOwner = UUID()
 
-    private var annotationSize: CGFloat { PlayerTypography.annotationSize(for: lyricSize) }
-    private var titleSize: CGFloat { PlayerTypography.titleSize(for: lyricSize) }
-    private var artistSize: CGFloat { PlayerTypography.artistSize(for: lyricSize) }
+    private var displayedLyricSize: Double { magnifiedLyricSize(lyricMagnification ?? 1) }
+    private var annotationSize: CGFloat { PlayerTypography.annotationSize(for: displayedLyricSize) }
+    private var titleSize: CGFloat { PlayerTypography.titleSize(for: displayedLyricSize) }
+    private var artistSize: CGFloat { PlayerTypography.artistSize(for: displayedLyricSize) }
     private var hasTiming: Bool { song.lines.contains { $0.timestampSeconds != nil } }
     private var logicProRecordingState: String {
         if logicProRecording.isRecording { return "Recording" }
@@ -96,7 +99,10 @@ struct PlayerView: View {
                 repeatsWhenFinished: true
             )
         }
-        .onDisappear { playback.stopPolling(owner: pollingOwner) }
+        .onDisappear {
+            playback.stopPolling(owner: pollingOwner)
+            pinchPlaybackLock.reset()
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("playerView")
     }
@@ -187,6 +193,15 @@ struct PlayerView: View {
                 }
                 .scrollIndicators(.hidden, axes: .vertical)
                 .scrollIndicators(.visible, axes: .horizontal)
+                .contentShape(Rectangle())
+                .simultaneousGesture(lyricSizeGesture)
+                .onChange(of: lyricMagnification == nil) { _, hasEnded in
+                    // GestureState also resets when a pinch is cancelled.
+                    if hasEnded { pinchPlaybackLock.endPinch() }
+                }
+                .accessibilityHint("Pinch to resize lyrics.")
+                .accessibilityAction(named: "Smaller Lyrics") { lyricSize = max(28, lyricSize - 2) }
+                .accessibilityAction(named: "Larger Lyrics") { lyricSize = min(72, lyricSize + 2) }
                 .accessibilityIdentifier("playerLyricsScrollView")
                 .scrollEdgeEffectStyle(.soft, for: .bottom)
                 // The column toolbar blurs and fades the actual lyrics at the top.
@@ -228,6 +243,25 @@ struct PlayerView: View {
         .background(ColumnToolbarAnchor(layout: toolbarLayout, column: .player))
     }
 
+    private func magnifiedLyricSize(_ magnification: CGFloat) -> Double {
+        min(72, max(28, lyricSize * Double(magnification)))
+    }
+
+    private var lyricSizeGesture: some Gesture {
+        MagnifyGesture(minimumScaleDelta: 0)
+            .updating($lyricMagnification) { value, magnification, transaction in
+                transaction.animation = nil
+                magnification = value.magnification
+            }
+            .onChanged { _ in pinchPlaybackLock.beginPinch() }
+            .onEnded { value in
+                withTransaction(Transaction(animation: nil)) {
+                    lyricSize = magnifiedLyricSize(value.magnification)
+                }
+                pinchPlaybackLock.endPinch()
+            }
+    }
+
     private func resumeFollowing(using proxy: ScrollViewProxy) {
         followLyricLine(
             playback.activeLyricIndex(for: song),
@@ -253,7 +287,9 @@ struct PlayerView: View {
     private func lyricRow(_ line: LyricLine, index: Int) -> some View {
         let isActive = activeIndex == index
         return Button {
+            guard !pinchPlaybackLock.isLocked else { return }
             Task {
+                guard !pinchPlaybackLock.isLocked else { return }
                 await playback.seekAndPlay(
                     song,
                     to: TimingUtilities.timestamp(forLineAt: index, in: song.lines)
@@ -272,7 +308,7 @@ struct PlayerView: View {
                 Text(
                     AttributedTextCodec.makeSwiftUIAttributedString(
                         from: line.lyric,
-                        size: CGFloat(lyricSize),
+                        size: CGFloat(displayedLyricSize),
                         fallbackFontFamily: fallbackFontFamily.isEmpty ? nil : fallbackFontFamily
                     )
                 )
@@ -287,6 +323,7 @@ struct PlayerView: View {
             .animation(.smooth(duration: 0.45), value: isActive)
         }
         .buttonStyle(.plain)
+        .disabled(pinchPlaybackLock.isLocked)
         .accessibilityIdentifier("playerLine-\(index)")
     }
 
@@ -333,24 +370,6 @@ struct PlayerView: View {
             .frame(maxWidth: .infinity)
 
             HStack(spacing: 12) {
-                HStack(spacing: 2) {
-                    Button {
-                        lyricSize = max(28, lyricSize - 2)
-                    } label: {
-                        Image(systemName: "textformat.size.smaller")
-                    }
-                    .accessibilityLabel("Smaller lyrics")
-                    .accessibilityIdentifier("smallerLyricsButton")
-
-                    Button {
-                        lyricSize = min(72, lyricSize + 2)
-                    } label: {
-                        Image(systemName: "textformat.size.larger")
-                    }
-                    .accessibilityLabel("Larger lyrics")
-                    .accessibilityIdentifier("largerLyricsButton")
-                }
-
                 PlayerLyricAlignmentControls(selection: $lyricAlignment)
 
                 Button {

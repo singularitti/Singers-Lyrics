@@ -11,6 +11,8 @@ struct MobilePlayerView: View {
     @AppStorage(PreferenceKey.lyricAlignment) private var lyricAlignment = PlayerLyricAlignment.center
     @AppStorage(PreferenceKey.defaultLyricsFontFamily) private var fallbackFontFamily = ""
     @ScaledMetric(relativeTo: .title) private var typeScale = 1.0
+    @GestureState private var lyricMagnification: CGFloat?
+    @State private var pinchPlaybackLock = PlayerPinchPlaybackLock()
     @State private var activeIndex: Int?
     @State private var autoFollow = true
     @State private var followRequest = UUID()
@@ -19,22 +21,20 @@ struct MobilePlayerView: View {
     @State private var scrubPosition = 0.0
     @State private var isPerformingAction = false
 
-    private var fontSize: CGFloat { CGFloat(lyricSize * typeScale) }
+    private var fontSize: CGFloat { CGFloat(magnifiedLyricSize(lyricMagnification ?? 1) * typeScale) }
     private var hasTiming: Bool { song.lines.contains { $0.timestampSeconds != nil } }
 
     private struct ControlMetrics {
         let spacing: CGFloat
-        let textSizeButtonWidth: CGFloat
         let utilityButtonWidth: CGFloat
         let playButtonSize: CGFloat
 
-        static let regular = Self(spacing: 8, textSizeButtonWidth: 32, utilityButtonWidth: 44, playButtonSize: 60)
-        static let compact = Self(spacing: 4, textSizeButtonWidth: 28, utilityButtonWidth: 40, playButtonSize: 44)
+        static let regular = Self(spacing: 8, utilityButtonWidth: 44, playButtonSize: 60)
+        static let compact = Self(spacing: 4, utilityButtonWidth: 40, playButtonSize: 44)
 
         var rowWidth: CGFloat {
-            textSizeButtonWidth * 2
-                + utilityButtonWidth * CGFloat(PlayerLyricAlignment.allCases.count + 1)
-                + playButtonSize + spacing * 3
+            utilityButtonWidth * CGFloat(PlayerLyricAlignment.allCases.count + 1)
+                + playButtonSize + spacing * 2
         }
     }
 
@@ -80,6 +80,15 @@ struct MobilePlayerView: View {
                 }
                 .scrollIndicators(.hidden)
                 .scrollEdgeEffectStyle(.soft, for: .all)
+                .contentShape(Rectangle())
+                .simultaneousGesture(lyricSizeGesture)
+                .onChange(of: lyricMagnification == nil) { _, hasEnded in
+                    // GestureState also resets when a pinch is cancelled.
+                    if hasEnded { pinchPlaybackLock.endPinch() }
+                }
+                .accessibilityHint("Pinch to resize lyrics.")
+                .accessibilityAction(named: "Smaller Lyrics") { lyricSize = max(24, lyricSize - 2) }
+                .accessibilityAction(named: "Larger Lyrics") { lyricSize = min(64, lyricSize + 2) }
                 .onScrollPhaseChange { _, phase in
                     if phase == .tracking || phase == .interacting || phase == .decelerating {
                         autoFollow = false
@@ -116,13 +125,34 @@ struct MobilePlayerView: View {
         }
         .background(Color(uiColor: .systemBackground))
         .keepsScreenAwake(playback.isPlaying(song))
+        .onDisappear { pinchPlaybackLock.reset() }
         .accessibilityIdentifier("mobilePlayer")
+    }
+
+    private func magnifiedLyricSize(_ magnification: CGFloat) -> Double {
+        min(64, max(24, lyricSize * Double(magnification)))
+    }
+
+    private var lyricSizeGesture: some Gesture {
+        MagnifyGesture(minimumScaleDelta: 0)
+            .updating($lyricMagnification) { value, magnification, transaction in
+                transaction.animation = nil
+                magnification = value.magnification
+            }
+            .onChanged { _ in pinchPlaybackLock.beginPinch() }
+            .onEnded { value in
+                withTransaction(Transaction(animation: nil)) {
+                    lyricSize = magnifiedLyricSize(value.magnification)
+                }
+                pinchPlaybackLock.endPinch()
+            }
     }
 
     private func lyricRow(_ line: LyricLine, index: Int) -> some View {
         let active = activeIndex == index
         return Button {
-            perform {
+            guard !pinchPlaybackLock.isLocked else { return }
+            perform(requiresPlaybackUnlock: true) {
                 await playback.seekAndPlay(song, to: TimingUtilities.timestamp(forLineAt: index, in: song.lines))
             }
         } label: {
@@ -147,7 +177,7 @@ struct MobilePlayerView: View {
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: active)
         }
         .buttonStyle(.plain)
-        .disabled(!hasTiming || isPerformingAction)
+        .disabled(!hasTiming || isPerformingAction || pinchPlaybackLock.isLocked)
         .accessibilityLabel([line.annotation, line.lyric.plainText].filter { !$0.isEmpty }.joined(separator: ". "))
         .accessibilityValue(active ? "Current lyric" : "")
         .accessibilityHint(hasTiming ? "Play from this line" : "")
@@ -201,45 +231,17 @@ struct MobilePlayerView: View {
 
     private func playerControls(metrics: ControlMetrics) -> some View {
         HStack(spacing: metrics.spacing) {
-            presentationControls(metrics: metrics)
+            PlayerLyricAlignmentControls(
+                selection: $lyricAlignment,
+                spacing: 0,
+                buttonWidth: metrics.utilityButtonWidth
+            )
             followButton(width: metrics.utilityButtonWidth)
             playPauseButton(size: metrics.playButtonSize)
         }
         .fixedSize(horizontal: true, vertical: false)
         .buttonStyle(.plain)
         .font(.system(size: 17))
-    }
-
-    private func presentationControls(metrics: ControlMetrics) -> some View {
-        HStack(spacing: metrics.spacing) {
-            textSizeControls(width: metrics.textSizeButtonWidth)
-            PlayerLyricAlignmentControls(
-                selection: $lyricAlignment,
-                spacing: 0,
-                buttonWidth: metrics.utilityButtonWidth
-            )
-        }
-        .fixedSize(horizontal: true, vertical: false)
-    }
-
-    private func textSizeControls(width: CGFloat) -> some View {
-        HStack(spacing: 0) {
-            Button { lyricSize = max(24, lyricSize - 2) } label: {
-                Image(systemName: "textformat.size.smaller")
-                    .frame(width: width, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .disabled(lyricSize <= 24)
-            .accessibilityLabel("Smaller Lyrics")
-
-            Button { lyricSize = min(64, lyricSize + 2) } label: {
-                Image(systemName: "textformat.size.larger")
-                    .frame(width: width, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .disabled(lyricSize >= 64)
-            .accessibilityLabel("Larger Lyrics")
-        }
     }
 
     private func followButton(width: CGFloat) -> some View {
@@ -274,12 +276,18 @@ struct MobilePlayerView: View {
         .accessibilityIdentifier("mobilePlayerPlayPause")
     }
 
-    private func perform(_ action: @escaping @MainActor () async -> Void) {
-        guard !isPerformingAction else { return }
+    private func perform(
+        requiresPlaybackUnlock: Bool = false,
+        _ action: @escaping @MainActor () async -> Void
+    ) {
+        guard !isPerformingAction,
+              !requiresPlaybackUnlock || !pinchPlaybackLock.isLocked else { return }
         isPerformingAction = true
         Task {
             defer { isPerformingAction = false }
+            guard !requiresPlaybackUnlock || !pinchPlaybackLock.isLocked else { return }
             await action()
+            guard !requiresPlaybackUnlock || !pinchPlaybackLock.isLocked else { return }
             followRequest = UUID()
         }
     }
