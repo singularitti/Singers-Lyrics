@@ -46,13 +46,17 @@ The player presents a centered song title and singer before the lyrics. They scr
 
 Pinch over the player lyrics to change the text size: use two fingers on iPhone or iPad, or a trackpad pinch on Mac. Lyrics, annotations, and the song header resize together. The lyric size stays within 24–64 points on iOS and 28–72 points on Mac, before iOS Dynamic Type scaling. A completed pinch saves the size for other songs and future launches; a cancelled pinch restores the saved size. VoiceOver also offers **Smaller Lyrics** and **Larger Lyrics** actions on the lyrics scroller.
 
+The initial lyric size is 44 points on Mac and 34 points on iOS. Each lyric entry has vertical padding that grows with the displayed font size within a narrow range: 10–18 points per edge on Mac and 12–20 points per edge on iOS. At the initial sizes, the padding remains 14 and 16 points per edge respectively. The mobile 44-point minimum tap height includes that padding, so short lyrics don't gain another layer of whitespace at small sizes. Dynamic Type still scales the text; the extra padding stays within its range.
+
+Within one lyric entry, wrapped lines use the font's natural line height plus 2–4 points of extra spacing before playback emphasis, less than the padding between separate entries. This extra spacing is six percent of the displayed lyric size, clamped to that range. Mobile lyrics wrap to the available width. Mac lyrics retain their intrinsic width and can scroll horizontally; the same tight spacing applies if an entry contains line breaks.
+
 The pinch begins without a minimum scale-change threshold, and size updates follow the gesture without an easing animation. The player constructs SwiftUI text attributes directly so each update avoids copying and converting editor attributed strings. Lyrics continue to reflow at their actual font size while pinching.
 
 Lyric playback buttons are locked during a pinch and for 180 milliseconds after it ends or is cancelled. Both the buttons and their playback actions reject activation while locked; the brief release delay also absorbs trailing touch or mouse events. A new pinch keeps the lock active, and leaving the player clears it. Audio that is already playing continues normally.
 
 Three alignment icons place lyric blocks at the left, center, or right. Annotations stay left-aligned within their lyric block and wrap to the lyric's width, so longer annotations don't shift the lyric's position. The alignment preference persists between songs and app launches; centered alignment is the default.
 
-Stable row heights and eased scrolling keep the active line readable. The final line can reach the vertical center of the viewport without excess scroll space beyond that position. Bottom clearance adapts to the viewport height.
+The Mac player accounts for the rendered height of active and inactive lyrics before adding row padding, so enlarged text doesn't consume the gap reserved between entries. Its horizontal layout width stays independent of playback emphasis, keeping the scrolling canvas and alignment stable. Measuring row heights up front and easing scrolling keep the active line readable. The final line can reach the vertical center of the viewport without excess scroll space beyond that position. Bottom clearance adapts to the viewport height.
 
 On Mac, a soft gradient and frosted titlebar fade scrolling lyrics into the player background. The backdrop samples content without reflecting or duplicating it and follows the player column in split and player-only modes. Reduce Transparency replaces the material with an opaque background and color fade. The editor header uses the same approach within its own column boundary.
 

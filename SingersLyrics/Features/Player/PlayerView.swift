@@ -35,6 +35,7 @@ struct PlayerView: View {
     @State private var pollingOwner = UUID()
 
     private var displayedLyricSize: Double { magnifiedLyricSize(lyricMagnification ?? 1) }
+    private var lyricSpacing: PlayerLyricSpacing { PlayerLyricSpacing(fontSize: CGFloat(displayedLyricSize)) }
     private var annotationSize: CGFloat { PlayerTypography.annotationSize(for: displayedLyricSize) }
     private var titleSize: CGFloat { PlayerTypography.titleSize(for: displayedLyricSize) }
     private var artistSize: CGFloat { PlayerTypography.artistSize(for: displayedLyricSize) }
@@ -286,6 +287,7 @@ struct PlayerView: View {
 
     private func lyricRow(_ line: LyricLine, index: Int) -> some View {
         let isActive = activeIndex == index
+        let emphasisScale: CGFloat = isActive ? 1.15 : 0.9
         return Button {
             guard !pinchPlaybackLock.isLocked else { return }
             Task {
@@ -297,28 +299,31 @@ struct PlayerView: View {
                 logicProRecording.startRecording(songID: song.id, isPlaying: playback.isPlaying(song))
             }
         } label: {
-            PlayerLyricBlockLayout(spacing: 4) {
-                if !line.annotation.isEmpty {
-                    Text(line.annotation)
-                        .font(.system(size: annotationSize).italic())
-                        .foregroundStyle(isActive ? .secondary : .tertiary)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Text(
-                    AttributedTextCodec.makeSwiftUIAttributedString(
-                        from: line.lyric,
-                        size: CGFloat(displayedLyricSize),
-                        fallbackFontFamily: fallbackFontFamily.isEmpty ? nil : fallbackFontFamily
+            PlayerLyricScaleLayout(scale: emphasisScale, anchor: lyricAlignment.scaleAnchor) {
+                PlayerLyricBlockLayout(spacing: 4) {
+                    if !line.annotation.isEmpty {
+                        Text(line.annotation)
+                            .font(.system(size: annotationSize).italic())
+                            .foregroundStyle(isActive ? .secondary : .tertiary)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text(
+                        AttributedTextCodec.makeSwiftUIAttributedString(
+                            from: line.lyric,
+                            size: CGFloat(displayedLyricSize),
+                            fallbackFontFamily: fallbackFontFamily.isEmpty ? nil : fallbackFontFamily
+                        )
                     )
-                )
-                .multilineTextAlignment(lyricAlignment.textAlignment)
+                    .lineSpacing(lyricSpacing.wrappedLineSpacing)
+                    .multilineTextAlignment(lyricAlignment.textAlignment)
+                    .fixedSize(horizontal: true, vertical: true)
+                }
                 .fixedSize(horizontal: true, vertical: true)
+                .scaleEffect(emphasisScale, anchor: lyricAlignment.scaleAnchor)
             }
-            .fixedSize(horizontal: true, vertical: true)
             .frame(maxWidth: .infinity, alignment: lyricAlignment.frameAlignment)
-            .padding(.vertical, 14)
-            .scaleEffect(isActive ? 1.15 : 0.9, anchor: lyricAlignment.scaleAnchor)
+            .padding(.vertical, lyricSpacing.rowPadding)
             .opacity(PlayerLyricEmphasis.opacity(isActive: isActive))
             .animation(.smooth(duration: 0.45), value: isActive)
         }

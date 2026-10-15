@@ -22,6 +22,7 @@ struct MobilePlayerView: View {
     @State private var isPerformingAction = false
 
     private var fontSize: CGFloat { CGFloat(magnifiedLyricSize(lyricMagnification ?? 1) * typeScale) }
+    private var lyricSpacing: PlayerLyricSpacing { PlayerLyricSpacing(fontSize: fontSize) }
     private var hasTiming: Bool { song.lines.contains { $0.timestampSeconds != nil } }
 
     private struct ControlMetrics {
@@ -168,11 +169,13 @@ struct MobilePlayerView: View {
                     size: fontSize,
                     fallbackFontFamily: fallbackFontFamily.isEmpty ? nil : fallbackFontFamily
                 ))
+                .lineSpacing(lyricSpacing.wrappedLineSpacing)
                 .multilineTextAlignment(lyricAlignment.textAlignment)
                 .fixedSize(horizontal: false, vertical: true)
             }
+            .padding(.vertical, lyricSpacing.rowPadding)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: lyricAlignment.frameAlignment)
-            .padding(.vertical, 16)
+            .contentShape(Rectangle())
             .opacity(PlayerLyricEmphasis.opacity(isActive: active))
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: active)
         }
