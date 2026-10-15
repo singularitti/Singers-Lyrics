@@ -1,0 +1,54 @@
+name: Package macOS release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Build universal Release app
+        run: |
+          xcodebuild build \
+            -project SingersLyrics.xcodeproj \
+            -scheme SingersLyrics \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            ARCHS='arm64 x86_64' \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Sign, verify, and package app
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/DerivedData/Build/Products/Release/Singers Lyrics.app"
+          version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
+          test "$version" = '1.0.0'
+          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/Singers Lyrics"
+          codesign --force --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          mkdir -p "$RUNNER_TEMP/release"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$app" "$RUNNER_TEMP/release/Singers-Lyrics-${version}-macOS-universal.zip"
+          cd "$RUNNER_TEMP/release"
+          shasum -a 256 Singers-Lyrics-*-macOS-universal.zip > SHA256SUMS.txt
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: Singers-Lyrics-macOS-Release
+          path: ${{ runner.temp }}/release/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
