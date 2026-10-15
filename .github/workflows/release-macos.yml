@@ -35,7 +35,7 @@ jobs:
           app="$RUNNER_TEMP/DerivedData/Build/Products/Release/Singers Lyrics.app"
           version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
           test "$version" = '1.0.0'
-          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/Singers Lyrics"
+          lipo "$app/Contents/MacOS/Singers Lyrics" -verify_arch arm64 x86_64
           codesign --force --sign - "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
           mkdir -p "$RUNNER_TEMP/release"
