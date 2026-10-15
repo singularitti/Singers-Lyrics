@@ -6,30 +6,25 @@ import UniformTypeIdentifiers
 enum AppLayoutMetrics {
     static let minimumWindowWidth: CGFloat = 900
     static let minimumWindowHeight: CGFloat = 560
-    static let minimumSidebarWidth: CGFloat = 160
-    static let idealSidebarWidth: CGFloat = 220
-    static let maximumSidebarWidth: CGFloat = 300
+    static let minimumSidebarWidth: CGFloat = 280
+    static let idealSidebarWidth: CGFloat = 360
+    static let maximumSidebarWidth: CGFloat = 480
     static let minimumEditorColumnWidth: CGFloat = 360
     static let minimumPlayerColumnWidth: CGFloat = 500
     static let minimumWorkspaceWidth = minimumEditorColumnWidth + minimumPlayerColumnWidth + 1
     static let metadataHeaderHorizontalInset: CGFloat = 16
-    static let sidebarRestorationClearance: CGFloat = 48
     static let toolbarControlWidth: CGFloat = 40
     static let toolbarControlHeight: CGFloat = 36
     static let toolbarFileGroupWidth: CGFloat = 2 * 38
     static let toolbarSongGroupWidth: CGFloat = 4 * 35
     static let toolbarGroupSpacing: CGFloat = 12
-    static let toolbarSearchWidth: CGFloat = 180
-    static let minimumToolbarSearchWidth: CGFloat = 160
-    static let toolbarActionsWithoutSearchWidth =
-        2 * toolbarControlWidth + toolbarFileGroupWidth + toolbarSongGroupWidth + 3 * toolbarGroupSpacing
-    static let maximumToolbarActionsWidth = toolbarActionsWithoutSearchWidth + toolbarSearchWidth
+    static let maximumToolbarActionsWidth =
+        2 * toolbarControlWidth + toolbarFileGroupWidth + toolbarSongGroupWidth + 2 * toolbarGroupSpacing
 }
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     let metadataLookup: any TrackMetadataLookingUp
-    @State private var searchText = ""
     @State private var songIDsToDelete: Set<UUID> = []
     @State private var songForDetails: Song?
     @State private var songForLink: Song?
@@ -38,78 +33,24 @@ struct ContentView: View {
     @State private var songBundleImportError: String?
     @State private var exportError: String?
     @State private var sidebarIsVisible = true
-    @State private var manuallyCollapsedSidebar = false
+    @State private var libraryBrowser = LibraryBrowserState()
     @State private var workspaceLayout = WorkspaceLayout.both
     @State private var windowWidth = CGFloat.infinity
-    @State private var showsCompactSearch = false
     @State private var sidebarWidth = AppLayoutMetrics.idealSidebarWidth
     @State private var sidebarDragStartWidth: CGFloat?
     @State private var toolbarLayout = ColumnToolbarLayout()
-    @State private var expandedSidebarSections: Set<SidebarSectionID> = []
-    @State private var selectedTagKeys: Set<String> = []
-    @State private var recentScope = RecentScope.today
-    @AppStorage(PreferenceKey.sortMode) private var sortModeRaw = SongSortMode.title.rawValue
-
-    private var sortMode: SongSortMode {
-        get { SongSortMode(rawValue: sortModeRaw) ?? .title }
-        nonmutating set { sortModeRaw = newValue.rawValue }
-    }
-
     private var tagSummaries: [TagSummary] {
-        var namesByKey: [String: String] = [:]
-        var countsByKey: [String: Int] = [:]
+        TagSummary.summaries(for: model.library.songs)
+    }
 
-        for song in model.library.songs {
-            var songKeys: Set<String> = []
-            for tag in song.tags {
-                let key = TagAppearance.normalizedKey(tag)
-                guard !key.isEmpty else { continue }
-                namesByKey[key, default: tag] = namesByKey[key] ?? tag
-                songKeys.insert(key)
-            }
-            for key in songKeys {
-                countsByKey[key, default: 0] += 1
-            }
+    // Keep the library visible in a narrower window. The two-column workspace
+    // returns automatically when there is enough room for both editor and player.
+    private var visibleWorkspaceLayout: WorkspaceLayout {
+        let availableWidth = windowWidth - (sidebarIsVisible ? sidebarWidth + 1 : 0)
+        if workspaceLayout == .both, availableWidth < AppLayoutMetrics.minimumWorkspaceWidth {
+            return .playerOnly
         }
-
-        return namesByKey.map { key, name in
-            TagSummary(key: key, name: name, songCount: countsByKey[key, default: 0])
-        }
-        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
-
-    private var availableTagKeys: Set<String> {
-        Set(tagSummaries.map(\.key))
-    }
-
-    private var songsSectionSongs: [Song] {
-        let filteredByTags = model.library.songs.filter { song in
-            selectedTagKeys.isEmpty || song.tags.contains {
-                selectedTagKeys.contains(TagAppearance.normalizedKey($0))
-            }
-        }
-        return sortMode.sorted(filteredByTags.filter(matchesSearch))
-    }
-
-    private var recentSongs: [Song] {
-        model.library.songs
-            .filter { song in
-                guard let lastPlayedAt = song.lastPlayedAt else { return false }
-                return recentScope.contains(lastPlayedAt)
-            }
-            .filter(matchesSearch)
-            .sorted { lhs, rhs in
-                let lhsDate = lhs.lastPlayedAt ?? .distantPast
-                let rhsDate = rhs.lastPlayedAt ?? .distantPast
-                if lhsDate != rhsDate {
-                    return lhsDate > rhsDate
-                }
-                return lhs.id.uuidString < rhs.id.uuidString
-            }
-    }
-
-    private var favoriteSongs: [Song] {
-        sortMode.sorted(model.library.songs.filter { $0.isFavorite && matchesSearch($0) })
+        return workspaceLayout
     }
 
     var body: some View {
@@ -123,9 +64,6 @@ struct ContentView: View {
             )
             .onChange(of: windowWidth) { _, width in
                 updateResponsiveLayout(for: width)
-            }
-            .onChange(of: availableTagKeys) { _, availableKeys in
-                selectedTagKeys.formIntersection(availableKeys)
             }
             .sheet(isPresented: Binding(
                 get: { model.isCreatingSong },
@@ -241,7 +179,11 @@ struct ContentView: View {
     private var splitView: some View {
         HStack(spacing: 0) {
             if sidebarIsVisible {
-                sidebar
+                SongLibrarySidebar(
+                    onDeleteSongs: prepareSongDeletion,
+                    songContextMenu: { songContextMenu(for: $0) },
+                    browser: $libraryBrowser
+                )
                     .frame(width: sidebarWidth)
                     .background(ColumnToolbarAnchor(layout: toolbarLayout, column: .sidebar))
                     .background {
@@ -257,14 +199,14 @@ struct ContentView: View {
             ColumnToolbarInstaller(
                 layout: toolbarLayout,
                 sidebarIsVisible: sidebarIsVisible,
-                showsSidebarToggle: showsSidebarToggle,
-                showsEditor: !model.isShowingRecordingTrash && workspaceLayout.showsEditor,
-                showsPlayer: !model.isShowingRecordingTrash && workspaceLayout != .editorOnly,
+                showsSidebarToggle: true,
+                showsEditor: !model.isShowingRecordingTrash && visibleWorkspaceLayout.showsEditor,
+                showsPlayer: !model.isShowingRecordingTrash && visibleWorkspaceLayout != .editorOnly,
                 title: model.isShowingRecordingTrash ? "Trash" : selectedSong?.title,
                 artist: model.isShowingRecordingTrash ? nil : selectedSong?.artist,
                 actions: AnyView(toolbarActions),
+                libraryHeader: AnyView(SongLibraryHeader(browser: $libraryBrowser).environment(model)),
                 onToggleSidebar: {
-                    manuallyCollapsedSidebar = sidebarIsVisible
                     sidebarIsVisible.toggle()
                 }
             )
@@ -303,7 +245,7 @@ struct ContentView: View {
             AppLayoutMetrics.maximumSidebarWidth,
             max(
                 AppLayoutMetrics.minimumSidebarWidth,
-                min(width, windowWidth - AppLayoutMetrics.minimumWorkspaceWidth - 1)
+                min(width, windowWidth - AppLayoutMetrics.minimumPlayerColumnWidth - 1)
             )
         )
     }
@@ -317,7 +259,7 @@ struct ContentView: View {
             TrashView()
         } else if let song = selectedSong,
                   let songBinding = model.bindingForSelectedSong() {
-            switch workspaceLayout {
+            switch visibleWorkspaceLayout {
             case .both:
                 HSplitView {
                     editorColumn(song: songBinding)
@@ -347,291 +289,6 @@ struct ContentView: View {
         }
     }
 
-    private var sidebar: some View {
-        List(selection: sidebarSelection) {
-            SidebarMenuSectionHeader(
-                title: "Songs",
-                isExpanded: sidebarSectionBinding(.songs),
-                headerIdentifier: "songsSectionHeader",
-                menuLabel: "Songs Options",
-                menuIdentifier: "songsSectionMenuButton"
-            ) {
-                Menu("Sort Songs By") {
-                    songSortCommands
-                }
-            }
-            .sidebarSectionHeaderRow()
-
-            if expandedSidebarSections.contains(.songs) {
-                if songsSectionSongs.isEmpty {
-                    sidebarEmptyRow("No Songs", identifier: "emptySongsItem")
-                } else {
-                    ForEach(sidebarSongItems(songsSectionSongs, section: .songs)) { item in
-                        sidebarSongRow(item.song, index: item.index, section: item.section)
-                    }
-                }
-            }
-
-            SidebarMenuSectionHeader(
-                title: "Recent",
-                isExpanded: sidebarSectionBinding(.recent),
-                headerIdentifier: "recentSectionHeader",
-                menuLabel: "Recent Options",
-                menuIdentifier: "recentSectionMenuButton"
-            ) {
-                recentScopeCommands
-            }
-            .sidebarSectionHeaderRow()
-
-            if expandedSidebarSections.contains(.recent) {
-                if recentSongs.isEmpty {
-                    sidebarEmptyRow("No Recent Songs", identifier: "emptyRecentSongsItem")
-                } else {
-                    ForEach(sidebarSongItems(recentSongs, section: .recent)) { item in
-                        sidebarSongRow(item.song, index: item.index, section: item.section)
-                    }
-                }
-            }
-
-            SidebarSectionHeader(
-                title: "Favorite",
-                isExpanded: sidebarSectionBinding(.favorite),
-                accessibilityIdentifier: "favoriteSectionHeader"
-            )
-            .sidebarSectionHeaderRow()
-
-            if expandedSidebarSections.contains(.favorite) {
-                if favoriteSongs.isEmpty {
-                    sidebarEmptyRow("No Favorite Songs", identifier: "emptyFavoriteSongsItem")
-                } else {
-                    ForEach(sidebarSongItems(favoriteSongs, section: .favorite)) { item in
-                        sidebarSongRow(item.song, index: item.index, section: item.section)
-                    }
-                }
-            }
-
-            SidebarSectionHeader(
-                title: "Tags",
-                isExpanded: sidebarSectionBinding(.tags),
-                accessibilityIdentifier: "tagsSectionHeader"
-            )
-            .sidebarSectionHeaderRow()
-
-            if expandedSidebarSections.contains(.tags) {
-                if tagSummaries.isEmpty {
-                    sidebarEmptyRow("No Tags", identifier: "emptyTagsItem")
-                } else {
-                    ForEach(Array(tagSummaries.enumerated()), id: \.element.id) { index, summary in
-                        tagCategoryRow(summary, index: index)
-                    }
-                }
-            }
-
-            HStack {
-                Text("Trash")
-                    .font(.body.weight(.regular))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(model.trashedItemCount, format: .number)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            .contentShape(Rectangle())
-            .textCase(nil)
-            .sidebarSectionHeaderRow()
-            .tag(SidebarDestination.recordingTrash)
-            .accessibilityLabel("Trash, \(model.library.trashedSongs.count) songs, \(model.recordingsInTrash.count) recordings")
-            .accessibilityIdentifier("recordingTrashSidebarItem")
-        }
-        .contextMenu(forSelectionType: SidebarDestination.self) { destinations in
-            let songIDs = Set(destinations.compactMap(\.songID))
-            if !songIDs.isEmpty { songContextMenu(for: songIDs) }
-        }
-        .onDeleteCommand {
-            let songIDs = Set(sidebarSelection.wrappedValue.compactMap(\.songID))
-            model.deleteSongs(songIDs)
-        }
-        .listStyle(.sidebar)
-        .contentMargins(.horizontal, 0, for: .scrollContent)
-        .scrollIndicators(.visible, axes: .vertical)
-        .accessibilityIdentifier("songList")
-    }
-
-    private var sidebarSelection: Binding<Set<SidebarDestination>> {
-        Binding(
-            get: {
-                model.isShowingRecordingTrash
-                    ? [.recordingTrash]
-                    : Set(model.selectedSongIDs.map(SidebarDestination.song))
-            },
-            set: { destinations in
-                let songIDs = Set(destinations.compactMap(\.songID))
-                if destinations.contains(.recordingTrash),
-                   !model.isShowingRecordingTrash || songIDs.isEmpty {
-                    model.showRecordingTrash()
-                } else {
-                    model.selectSongs(songIDs)
-                }
-            }
-        )
-    }
-
-    @ViewBuilder
-    private var songSortCommands: some View {
-        ForEach(SongSortMode.allCases, id: \.rawValue) { mode in
-            Button {
-                sortMode = mode
-            } label: {
-                if sortMode == mode {
-                    Label(mode.title, systemImage: "checkmark")
-                } else {
-                    Text(mode.title)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var recentScopeCommands: some View {
-        ForEach(RecentScope.allCases) { scope in
-            Button {
-                recentScope = scope
-            } label: {
-                if recentScope == scope {
-                    Label(scope.title, systemImage: "checkmark")
-                } else {
-                    Text(scope.title)
-                }
-            }
-        }
-    }
-
-    private func sidebarSongRow(
-        _ song: Song,
-        index: Int,
-        section: SidebarSectionID
-    ) -> some View {
-        let accessibilityComponents = [
-            song.title.isEmpty ? "Untitled" : song.title,
-            songArtistAndAlbum(song),
-        ]
-
-        return VStack(alignment: .leading, spacing: 3) {
-            Text(song.title.isEmpty ? "Untitled" : song.title)
-                .fontWeight(.medium)
-                .lineLimit(1)
-            Text(songArtistAndAlbum(song))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-        .padding(.vertical, 3)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .sidebarSectionItemRow()
-        .tag(SidebarDestination.song(song.id))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            accessibilityComponents
-                .filter { !$0.isEmpty }
-                .joined(separator: ", ")
-        )
-        .accessibilityIdentifier(songRowIdentifier(section: section, index: index))
-    }
-
-    private func sidebarSongItems(
-        _ songs: [Song],
-        section: SidebarSectionID
-    ) -> [SidebarSongItem] {
-        songs.enumerated().map { index, song in
-            SidebarSongItem(section: section, index: index, song: song)
-        }
-    }
-
-    private func sidebarEmptyRow(_ title: String, identifier: String) -> some View {
-        Text(title)
-            .foregroundStyle(.tertiary)
-            .sidebarSectionItemRow()
-            .accessibilityIdentifier(identifier)
-    }
-
-    private func tagCategoryRow(_ summary: TagSummary, index: Int) -> some View {
-        let isSelected = selectedTagKeys.contains(summary.key)
-        return Button {
-            toggleTagSelection(summary.key)
-        } label: {
-            HStack(spacing: 8) {
-                TagChip(name: summary.name, size: .regular)
-                Spacer(minLength: 4)
-                Text(summary.songCount, format: .number)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.vertical, 3)
-            .padding(.trailing, 5)
-            .background(
-                isSelected ? Color.accentColor.opacity(0.18) : .clear,
-                in: RoundedRectangle(cornerRadius: 7)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .sidebarSectionItemRow()
-        .accessibilityLabel("\(summary.name), \(summary.songCount) songs")
-        .accessibilityValue(isSelected ? "Selected" : "Not Selected")
-        .accessibilityIdentifier("tagItem-\(index)")
-    }
-
-    private func sidebarSectionBinding(_ section: SidebarSectionID) -> Binding<Bool> {
-        Binding(
-            get: { expandedSidebarSections.contains(section) },
-            set: { isExpanded in
-                if isExpanded {
-                    expandedSidebarSections.insert(section)
-                } else {
-                    expandedSidebarSections.remove(section)
-                }
-            }
-        )
-    }
-
-    private func toggleTagSelection(_ key: String) {
-        if selectedTagKeys.contains(key) {
-            selectedTagKeys.remove(key)
-        } else {
-            let selectsFirstTag = selectedTagKeys.isEmpty
-            selectedTagKeys.insert(key)
-            if selectsFirstTag {
-                expandedSidebarSections.insert(.songs)
-            }
-        }
-    }
-
-    private func matchesSearch(_ song: Song) -> Bool {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return true }
-        return "\(song.title) \(song.artist) \(song.album) \(song.tags.joined(separator: " "))"
-            .localizedCaseInsensitiveContains(query)
-    }
-
-    private func songRowIdentifier(section: SidebarSectionID, index: Int) -> String {
-        switch section {
-        case .songs: "songRow-\(index)"
-        case .recent: "recentSongRow-\(index)"
-        case .favorite: "favoriteSongRow-\(index)"
-        case .tags: "tagSongRow-\(index)"
-        }
-    }
-
-    private func songArtistAndAlbum(_ song: Song) -> String {
-        let artist = song.artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "Unknown Singer"
-            : song.artist
-        let album = song.album.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "Unknown Album"
-            : song.album
-        return "\(artist) | \(album)"
-    }
-
     private func editorColumn(song: Binding<Song>) -> some View {
         LyricsEditorView(song: song)
             .id(song.wrappedValue.id)
@@ -659,40 +316,13 @@ struct ContentView: View {
     }
 
     private var songToolbarActions: some View {
-        GeometryReader { geometry in
-            let searchWidth = min(
-                AppLayoutMetrics.toolbarSearchWidth,
-                geometry.size.width - AppLayoutMetrics.toolbarActionsWithoutSearchWidth
-            )
-            let usesCompactSearch = searchWidth < AppLayoutMetrics.minimumToolbarSearchWidth
-
-            HStack(spacing: AppLayoutMetrics.toolbarGroupSpacing) {
-                workspaceToolbarButtons
-                lyricsFileToolbarButtons
-                songToolbarButtons
-
-                if usesCompactSearch {
-                    compactSearchButton
-                        .buttonStyle(.borderless)
-                        .frame(
-                            width: AppLayoutMetrics.toolbarControlHeight,
-                            height: AppLayoutMetrics.toolbarControlHeight
-                        )
-                        .glassEffect(.regular, in: .circle)
-                } else {
-                    ToolbarSearchField(text: $searchText)
-                        .frame(width: searchWidth, height: 24)
-                        .frame(height: AppLayoutMetrics.toolbarControlHeight)
-                        .glassEffect(.regular, in: .capsule)
-                        .accessibilityIdentifier("songSearchField")
-                }
-            }
-            .fixedSize()
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .trailing)
-            .onChange(of: usesCompactSearch) { _, compact in
-                if !compact { showsCompactSearch = false }
-            }
+        HStack(spacing: AppLayoutMetrics.toolbarGroupSpacing) {
+            workspaceToolbarButtons
+            lyricsFileToolbarButtons
+            songToolbarButtons
         }
+        .fixedSize()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
     }
 
     private var workspaceToolbarButtons: some View {
@@ -705,7 +335,7 @@ struct ContentView: View {
             .help(workspaceToggleLabel(for: .editor))
             .accessibilityLabel(workspaceToggleLabel(for: .editor))
             .accessibilityIdentifier("toggleEditorPanelButton")
-            .accessibilityValue(workspaceLayout.accessibilityValue)
+            .accessibilityValue(visibleWorkspaceLayout.accessibilityValue)
 
             Button {
                 toggleWorkspaceColumn(.player)
@@ -715,7 +345,7 @@ struct ContentView: View {
             .help(workspaceToggleLabel(for: .player))
             .accessibilityLabel(workspaceToggleLabel(for: .player))
             .accessibilityIdentifier("togglePreviewPanelButton")
-            .accessibilityValue(workspaceLayout.accessibilityValue)
+            .accessibilityValue(visibleWorkspaceLayout.accessibilityValue)
         }
         .controlGroupStyle(.navigation)
         .labelStyle(.iconOnly)
@@ -824,47 +454,9 @@ struct ContentView: View {
         return model.song(withID: selectedSongID)
     }
 
-    private var showsSidebarToggle: Bool {
-        sidebarIsVisible || (manuallyCollapsedSidebar && windowWidth >= sidebarRestoreWidth)
-    }
-
-    private var sidebarCollapseWidth: CGFloat {
-        max(sidebarWidth, AppLayoutMetrics.idealSidebarWidth)
-            + AppLayoutMetrics.minimumWorkspaceWidth + 1
-    }
-
-    private var sidebarRestoreWidth: CGFloat {
-        sidebarCollapseWidth + AppLayoutMetrics.sidebarRestorationClearance
-    }
-
-    private var compactSearchButton: some View {
-        Button {
-            showsCompactSearch.toggle()
-        } label: {
-            Label("Search Songs", systemImage: "magnifyingglass")
-        }
-        .labelStyle(.iconOnly)
-        .help("Search Songs")
-        .accessibilityLabel("Search Songs")
-        .accessibilityValue(searchText.isEmpty ? "No filter" : searchText)
-        .accessibilityIdentifier("compactSongSearchButton")
-        .popover(isPresented: $showsCompactSearch, arrowEdge: .bottom) {
-            ToolbarSearchField(text: $searchText)
-                .frame(width: 220, height: 24)
-                .accessibilityIdentifier("songSearchField")
-                .padding(12)
-        }
-    }
-
     private func updateResponsiveLayout(for width: CGFloat) {
         withTransaction(Transaction(animation: nil)) {
-            if width < sidebarCollapseWidth {
-                sidebarIsVisible = false
-                sidebarDragStartWidth = nil
-            } else if !manuallyCollapsedSidebar,
-                      width >= sidebarRestoreWidth {
-                sidebarIsVisible = true
-            }
+            resizeSidebar(to: sidebarWidth)
         }
     }
 
@@ -873,12 +465,13 @@ struct ContentView: View {
         case .editor: .editorOnly
         case .player: .playerOnly
         }
-        workspaceLayout = workspaceLayout == focusedLayout ? .both : focusedLayout
+        workspaceLayout = visibleWorkspaceLayout == focusedLayout && workspaceLayout == focusedLayout
+            ? .both : focusedLayout
     }
 
     private func workspaceToggleLabel(for column: WorkspaceColumn) -> String {
         let focusedLayout: WorkspaceLayout = column == .editor ? .editorOnly : .playerOnly
-        if workspaceLayout == focusedLayout {
+        if workspaceLayout == focusedLayout && visibleWorkspaceLayout == focusedLayout {
             return "Show Editor and Player Columns"
         }
         return column == .editor ? "Show Only Editor Column" : "Show Only Player Column"
@@ -1123,42 +716,6 @@ private struct WindowWidthReader: NSViewRepresentable {
     }
 }
 
-private struct ToolbarSearchField: NSViewRepresentable {
-    @Binding var text: String
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
-    }
-
-    func makeNSView(context: Context) -> NSSearchField {
-        let searchField = NSSearchField()
-        searchField.placeholderString = "Search songs"
-        searchField.sendsSearchStringImmediately = true
-        searchField.sendsWholeSearchString = false
-        searchField.delegate = context.coordinator
-        return searchField
-    }
-
-    func updateNSView(_ searchField: NSSearchField, context: Context) {
-        guard searchField.stringValue != text else { return }
-        searchField.stringValue = text
-    }
-
-    @MainActor
-    final class Coordinator: NSObject, NSSearchFieldDelegate {
-        @Binding private var text: String
-
-        init(text: Binding<String>) {
-            _text = text
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let searchField = notification.object as? NSSearchField else { return }
-            text = searchField.stringValue
-        }
-    }
-}
-
 private struct PendingSongExport {
     var document: SongExportFileDocument
     var contentType: UTType
@@ -1224,92 +781,32 @@ private enum WorkspaceLayout: Equatable {
     }
 }
 
-private enum SidebarSectionID: String, Hashable {
-    case songs
-    case recent
-    case favorite
-    case tags
-}
-
-private enum SidebarDestination: Hashable {
-    case song(UUID)
-    case recordingTrash
-
-    var songID: UUID? {
-        guard case .song(let id) = self else { return nil }
-        return id
-    }
-}
-
-private struct SidebarSongItem: Identifiable {
-    struct ID: Hashable {
-        let section: SidebarSectionID
-        let songID: UUID
-    }
-
-    let section: SidebarSectionID
-    let index: Int
-    let song: Song
-
-    var id: ID {
-        ID(section: section, songID: song.id)
-    }
-}
-
-private enum RecentScope: String, CaseIterable, Identifiable {
-    case today
-    case yesterday
-    case inLastWeek
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .today: "Today"
-        case .yesterday: "Yesterday"
-        case .inLastWeek: "In Last Week"
-        }
-    }
-
-    func contains(
-        _ date: Date,
-        relativeTo now: Date = Date(),
-        calendar: Calendar = .autoupdatingCurrent
-    ) -> Bool {
-        let startOfToday = calendar.startOfDay(for: now)
-        guard let startOfTomorrow = calendar.date(byAdding: .day, value: 1, to: startOfToday)
-        else { return false }
-
-        switch self {
-        case .today:
-            return date >= startOfToday && date < startOfTomorrow
-        case .yesterday:
-            guard let startOfYesterday = calendar.date(
-                byAdding: .day,
-                value: -1,
-                to: startOfToday
-            ) else { return false }
-            return date >= startOfYesterday && date < startOfToday
-        case .inLastWeek:
-            guard let startOfWindow = calendar.date(
-                byAdding: .day,
-                value: -6,
-                to: startOfToday
-            ) else { return false }
-            return date >= startOfWindow && date < startOfTomorrow
-        }
-    }
-}
-
-private struct TagSummary: Identifiable, Equatable {
+struct TagSummary: Identifiable, Equatable {
     var key: String
     var name: String
     var songCount: Int
 
     var id: String { key }
+
+    static func summaries(for songs: [Song]) -> [TagSummary] {
+        var names: [String: String] = [:]
+        var counts: [String: Int] = [:]
+        for song in songs {
+            var songKeys: Set<String> = []
+            for tag in song.tags {
+                let key = TagAppearance.normalizedKey(tag)
+                guard !key.isEmpty else { continue }
+                if names[key] == nil { names[key] = tag }
+                songKeys.insert(key)
+            }
+            for key in songKeys { counts[key, default: 0] += 1 }
+        }
+        return names.map { TagSummary(key: $0.key, name: $0.value, songCount: counts[$0.key, default: 0]) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
 }
 
-private enum TagAppearance {
+enum TagAppearance {
     private static let locale = Locale(identifier: "en_US_POSIX")
     private static let palette: [Color] = [
         .blue,
@@ -1346,7 +843,7 @@ private enum TagAppearance {
     }
 }
 
-private enum TagChipSize {
+enum TagChipSize {
     case compact
     case regular
 
@@ -1372,7 +869,7 @@ private enum TagChipSize {
     }
 }
 
-private struct TagChip: View {
+struct TagChip: View {
     let name: String
     var size = TagChipSize.compact
 
@@ -1423,132 +920,6 @@ private struct RemovableTagChip: View {
         .fixedSize()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(accessibilityIdentifier)
-    }
-}
-
-private struct SidebarSectionHeader: View {
-    let title: String
-    @Binding var isExpanded: Bool
-    let accessibilityIdentifier: String
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Button {
-                isExpanded.toggle()
-            } label: {
-                SidebarSectionToggleLabel(
-                    title: title,
-                    isExpanded: isExpanded
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(title)
-            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityIdentifier(accessibilityIdentifier)
-
-            Spacer(minLength: 0)
-        }
-        .contentShape(Rectangle())
-        .textCase(nil)
-    }
-}
-
-private struct SidebarMenuSectionHeader<MenuContent: View>: View {
-    let title: String
-    @Binding var isExpanded: Bool
-    let headerIdentifier: String
-    let menuLabel: String
-    let menuIdentifier: String
-    @ViewBuilder let menuContent: () -> MenuContent
-
-    @State private var isHovering = false
-    @FocusState private var menuIsFocused: Bool
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Button {
-                isExpanded.toggle()
-            } label: {
-                SidebarSectionToggleLabel(
-                    title: title,
-                    isExpanded: isExpanded
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(title)
-            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityIdentifier(headerIdentifier)
-
-            Spacer(minLength: 0)
-
-            Menu {
-                menuContent()
-            } label: {
-                Color.clear
-                    .frame(width: 20, height: 18)
-                    .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .overlay {
-                // Draw outside the native menu label so the symbol keeps its adaptive color.
-                Image(systemName: "ellipsis")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-            .focused($menuIsFocused)
-            .opacity(isHovering || menuIsFocused ? 1 : 0.001)
-            .accessibilityLabel(menuLabel)
-            .accessibilityIdentifier(menuIdentifier)
-        }
-        .contentShape(Rectangle())
-        .onHover { isHovering = $0 }
-        .textCase(nil)
-    }
-}
-
-private enum SidebarLayoutMetrics {
-    static let labelSpacing: CGFloat = 6
-    static let itemIndent: CGFloat = 8
-}
-
-private extension View {
-    func sidebarSectionHeaderRow() -> some View {
-        frame(maxWidth: .infinity, alignment: .leading)
-            .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 5, trailing: 8))
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
-    }
-
-    func sidebarSectionItemRow() -> some View {
-        frame(maxWidth: .infinity, alignment: .leading)
-            .listRowInsets(EdgeInsets(
-                top: 0,
-                leading: SidebarLayoutMetrics.itemIndent,
-                bottom: 0,
-                trailing: 8
-            ))
-    }
-}
-
-private struct SidebarSectionToggleLabel: View {
-    let title: String
-    let isExpanded: Bool
-
-    var body: some View {
-        HStack(spacing: SidebarLayoutMetrics.labelSpacing) {
-            Text(title)
-            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                .font(.caption.weight(.regular))
-        }
-        .font(.body.weight(.regular))
-        .foregroundStyle(.secondary)
-        .contentShape(Rectangle())
     }
 }
 

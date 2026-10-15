@@ -71,6 +71,10 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            #if os(macOS)
+            LibraryAppearanceSettingsSection()
+            #endif
+
             Section("iCloud") {
                 Toggle("Sync Library with iCloud", isOn: Binding(
                     get: { model.cloudSync.isEnabled },
@@ -193,6 +197,31 @@ struct SettingsView: View {
 }
 
 #if os(macOS)
+private struct LibraryAppearanceSettingsSection: View {
+    @AppStorage(PreferenceKey.showsLibraryArtwork) private var showsArtwork = true
+    @AppStorage(PreferenceKey.libraryArtworkSize) private var artworkSize = LibraryArtworkSize.medium.rawValue
+
+    var body: some View {
+        Section("Song List") {
+            Toggle("Show album artwork", isOn: $showsArtwork)
+                .accessibilityIdentifier("showLibraryArtworkToggle")
+
+            Picker("Artwork size", selection: $artworkSize) {
+                ForEach(LibraryArtworkSize.allCases) { size in
+                    Text(size.title).tag(size.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(!showsArtwork)
+            .accessibilityIdentifier("libraryArtworkSizePicker")
+
+            Text("Choose how album artwork appears in the song list.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 private struct LogicProSettingsSection: View {
     @Environment(LogicProRecordingModel.self) private var logicProRecording
 

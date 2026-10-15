@@ -15,6 +15,7 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
     private weak var window: NSWindow?
     private var previousToolbar: NSToolbar?
     private let itemIdentifier = NSToolbarItem.Identifier("columnControls")
+    private let sidebarTitlebarBackground = CALayer()
     private let titlebarBackground = CALayer()
     private let playerTitlebarBackground = CALayer()
     private let playerTitlebarMask = CAGradientLayer()
@@ -42,8 +43,9 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
     var showsPlayer = true
     var onToggleSidebar: (() -> Void)?
 
-    func update(title: String?, artist: String?, actions: AnyView) {
+    func update(title: String?, artist: String?, actions: AnyView, libraryHeader: AnyView) {
         toolbarView.actions.rootView = actions
+        toolbarView.libraryHeader.rootView = libraryHeader
         toolbarView.setTitle(title, artist: artist)
         toolbarView.toggle.toolTip = sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar"
         toolbarView.toggle.setAccessibilityLabel(toolbarView.toggle.toolTip)
@@ -71,10 +73,10 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         if let contentView = window.contentView {
-            // Sample the lyrics in the same rendering layer, below the native
-            // toolbar. A system material adds an unwanted gray background here.
+            // Place the opaque library header and the frosted workspace
+            // titlebars above their scrolling content, below the native toolbar.
             contentView.wantsLayer = true
-            for background in [titlebarBackground, playerTitlebarBackground] {
+            for background in [sidebarTitlebarBackground, titlebarBackground, playerTitlebarBackground] {
                 contentView.layer?.addSublayer(background)
                 background.masksToBounds = true
                 // SwiftUI can add content layers after the toolbar is installed.
@@ -105,6 +107,7 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
     func detach() {
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
+        sidebarTitlebarBackground.removeFromSuperlayer()
         titlebarBackground.removeFromSuperlayer()
         playerTitlebarBackground.removeFromSuperlayer()
         titlebarAppearance = nil
@@ -136,8 +139,16 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
         toolbarView.toggle.isHidden = !showsSidebarToggle
         place(toolbarView.toggle, from: toggleX, to: toggleX + toggleWidth, in: toolbarFrame)
 
+        // Keep the list heading and filters beside the original native sidebar
+        // toggle, in the titlebar rather than consuming a second header row.
+        toolbarView.libraryHeader.isHidden = sidebarFrame == nil
+        if let sidebarFrame {
+            let headerLeft = max(sidebarFrame.minX + inset, toolbarFrame.minX)
+            place(toolbarView.libraryHeader, from: headerLeft, to: max(headerLeft, toggleX - 6), in: toolbarFrame)
+        }
+
         // In split mode the complete action block belongs to the player column.
-        // The hosted view reduces search width within this exact allocation.
+        // Library search lives in the sidebar; this block only controls the song.
         let actionsLeft: CGFloat
         if usesWorkspaceTitle {
             actionsLeft = right
@@ -174,6 +185,7 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         guard let window, let contentView = window.contentView else {
+            sidebarTitlebarBackground.isHidden = true
             titlebarBackground.isHidden = true
             playerTitlebarBackground.isHidden = true
             return
@@ -203,6 +215,7 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
             }
         }
 
+        placeBackground(sidebarTitlebarBackground, over: sidebarIsVisible ? frame(of: sidebar) : nil)
         placeBackground(titlebarBackground, over: showsEditor ? frame(of: editor) : nil)
         let playerFrame = showsPlayer ? frame(of: player) : nil
         // Banners can push the scroller below the titlebar. Keep them clear.
@@ -233,9 +246,11 @@ final class ColumnToolbarLayout: NSObject, NSToolbarDelegate {
         defer { CATransaction.commit() }
         titlebarAppearance = appearance
         let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        sidebarTitlebarBackground.backgroundFilters = nil
         titlebarBackground.backgroundFilters = reduceTransparency ? nil : [titlebarBlur]
         playerTitlebarBackground.backgroundFilters = reduceTransparency ? nil : [titlebarBlur]
         appearance.performAsCurrentDrawingAppearance {
+            sidebarTitlebarBackground.backgroundColor = NSColor.windowBackgroundColor.cgColor
             titlebarBackground.backgroundColor = NSColor.textBackgroundColor
                 .withAlphaComponent(reduceTransparency ? 1 : 0.08).cgColor
             playerTitlebarBackground.backgroundColor = NSColor.windowBackgroundColor
@@ -279,6 +294,7 @@ private final class ColumnToolbarView: NSView {
     let toggle = NSButton(image: NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: nil)!, target: nil, action: nil)
     let title = NSTextField(labelWithString: "")
     let actions = NSHostingView(rootView: AnyView(EmptyView()))
+    let libraryHeader = NSHostingView(rootView: AnyView(EmptyView()))
     var onLayout: (() -> Void)?
     var onToggleSidebar: (() -> Void)?
 
@@ -312,9 +328,14 @@ private final class ColumnToolbarView: NSView {
         actions.sizingOptions = []
         actions.safeAreaRegions = []
         actions.clipsToBounds = true
+        libraryHeader.setAccessibilityLabel("Song library header")
+        libraryHeader.sizingOptions = []
+        libraryHeader.safeAreaRegions = []
+        libraryHeader.clipsToBounds = true
         addSubview(toggle)
         addSubview(title)
         addSubview(actions)
+        addSubview(libraryHeader)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -406,6 +427,7 @@ struct ColumnToolbarInstaller: NSViewRepresentable {
     let title: String?
     let artist: String?
     let actions: AnyView
+    let libraryHeader: AnyView
     let onToggleSidebar: () -> Void
 
     func makeNSView(context: Context) -> InstallerView { InstallerView(layout: layout) }
@@ -416,7 +438,7 @@ struct ColumnToolbarInstaller: NSViewRepresentable {
         layout.showsEditor = showsEditor
         layout.showsPlayer = showsPlayer
         layout.onToggleSidebar = onToggleSidebar
-        layout.update(title: title, artist: artist, actions: actions)
+        layout.update(title: title, artist: artist, actions: actions, libraryHeader: libraryHeader)
     }
 
     static func dismantleNSView(_ view: InstallerView, coordinator: Void) { view.toolbarLayout?.detach() }

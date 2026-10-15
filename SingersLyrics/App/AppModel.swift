@@ -1052,6 +1052,8 @@ enum PreferenceKey {
     static let lyricSize = "lyricSize"
     static let lyricAlignment = "lyricAlignment"
     static let defaultLyricsFontFamily = "defaultLyricsFontFamily"
+    static let showsLibraryArtwork = "showsLibraryArtwork"
+    static let libraryArtworkSize = "libraryArtworkSize"
     static let editorPanelVisible = "editorPanelVisible"
     static let previewPanelVisible = "previewPanelVisible"
     static let recordsInLogicPro = "recordsInLogicPro"
@@ -1065,6 +1067,8 @@ enum PreferenceKey {
         lyricSize,
         lyricAlignment,
         defaultLyricsFontFamily,
+        showsLibraryArtwork,
+        libraryArtworkSize,
         editorPanelVisible,
         previewPanelVisible,
         recordsInLogicPro,
