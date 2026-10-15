@@ -39,6 +39,12 @@ On iPhone and iPad, the screen stays awake while the selected song is playing in
 
 Operation generations prevent older asynchronous results from updating a newer action or target. Timing controls require a ready, identified session. Seek positions are finite, nonnegative, and bounded by the known duration on iOS.
 
+### Follow timed lyrics
+
+Mac, iPhone, and iPad use the same lyric emphasis: the current line has full opacity, and every other line has 0.42 opacity. Before playback is ready, or before the first timestamp is reached, all lyrics stay dimmed. A first timestamp at zero activates only when the selected track is ready and playing or paused. Pausing keeps the current line; stopping clears it. The existing 0.12-second lookahead applies to later cues, never to the first cue.
+
+Only lines with timestamps can become current. With no timestamps, the lyrics remain dimmed and the player shows its timing guidance. Untimed lines before the first cue stay dimmed. Between timed cues, the previous timed line remains current and untimed lines are skipped; the app does not estimate missing times or treat untimed lines as a group. The last timed line remains current until playback stops or repeats. Highlighting therefore indicates the most recently reached timed line when timing is incomplete.
+
 ### Report playback failures
 
 The mobile notice distinguishes permission, account capability, song availability, network, and player failures. **Technical Details** contains the failed stage and a controlled error category or numeric code. It excludes account identifiers, tokens, song URLs, localized error descriptions, and arbitrary error payloads. Logs follow the same restriction.

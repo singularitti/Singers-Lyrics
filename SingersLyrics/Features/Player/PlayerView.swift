@@ -200,10 +200,9 @@ struct PlayerView: View {
                     // Observe the playback clock without rebuilding and measuring
                     // every attributed lyric at the timeline's 30 Hz cadence.
                     TimelineView(.animation(minimumInterval: 1 / 30)) { context in
-                        let position = playback.interpolatedPosition(for: song, at: context.date)
                         Color.clear
                             .onChange(
-                                of: TimingUtilities.activeLineIndex(in: song.lines, position: position)
+                                of: playback.activeLyricIndex(for: song, at: context.date)
                             ) { _, next in
                                 followLyricLine(next, using: proxy)
                             }
@@ -231,10 +230,7 @@ struct PlayerView: View {
 
     private func resumeFollowing(using proxy: ScrollViewProxy) {
         followLyricLine(
-            TimingUtilities.activeLineIndex(
-                in: song.lines,
-                position: playback.interpolatedPosition(for: song)
-            ),
+            playback.activeLyricIndex(for: song),
             force: true,
             using: proxy
         )
@@ -287,7 +283,7 @@ struct PlayerView: View {
             .frame(maxWidth: .infinity, alignment: lyricAlignment.frameAlignment)
             .padding(.vertical, 14)
             .scaleEffect(isActive ? 1.15 : 0.9, anchor: lyricAlignment.scaleAnchor)
-            .opacity(activeIndex == nil ? 0.6 : (isActive ? 1 : 0.28))
+            .opacity(PlayerLyricEmphasis.opacity(isActive: isActive))
             .animation(.smooth(duration: 0.45), value: isActive)
         }
         .buttonStyle(.plain)

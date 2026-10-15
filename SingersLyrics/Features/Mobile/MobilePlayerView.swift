@@ -83,9 +83,9 @@ struct MobilePlayerView: View {
                 .background {
                     TimelineView(.animation(minimumInterval: 1 / 15)) { context in
                         Color.clear
-                            .onChange(of: TimingUtilities.activeLineIndex(
-                                in: song.lines,
-                                position: playback.interpolatedPosition(for: song, at: context.date)
+                            .onChange(of: playback.activeLyricIndex(
+                                for: song,
+                                at: context.date
                             )) { _, index in follow(index, using: proxy) }
                     }
                     .allowsHitTesting(false)
@@ -138,7 +138,7 @@ struct MobilePlayerView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 44, alignment: lyricAlignment.frameAlignment)
             .padding(.vertical, 16)
-            .opacity(activeIndex == nil || !hasTiming ? 1 : (active ? 1 : 0.42))
+            .opacity(PlayerLyricEmphasis.opacity(isActive: active))
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: active)
         }
         .buttonStyle(.plain)
@@ -330,9 +330,7 @@ struct MobilePlayerView: View {
 
     private func resumeFollowing(using proxy: ScrollViewProxy) {
         autoFollow = true
-        follow(TimingUtilities.activeLineIndex(
-            in: song.lines, position: playback.interpolatedPosition(for: song)
-        ), using: proxy, force: true)
+        follow(playback.activeLyricIndex(for: song), using: proxy, force: true)
     }
 
     private func follow(_ index: Int?, using proxy: ScrollViewProxy, force: Bool = false) {

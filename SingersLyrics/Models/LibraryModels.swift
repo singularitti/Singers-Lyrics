@@ -702,6 +702,11 @@ enum TimingUtilities {
         position: Double,
         tolerance: Double = 0.12
     ) -> Int? {
+        // Look ahead between cues, but never highlight during the intro.
+        guard position.isFinite,
+              let firstTimestamp = lines.lazy.compactMap(\.timestampSeconds).filter(\.isFinite).min(),
+              position >= firstTimestamp else { return nil }
+
         var active: Int?
         for (index, line) in lines.enumerated() {
             if let timestamp = line.timestampSeconds, timestamp <= position + tolerance {

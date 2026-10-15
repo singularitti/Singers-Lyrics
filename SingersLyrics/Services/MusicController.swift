@@ -573,6 +573,16 @@ final class MusicPlaybackModel {
             && isAcceptedTargetState(state, target: PlaybackTarget(song: song))
     }
 
+    /// An idle or still-opening track has no current lyric, even at a zero cue.
+    /// A ready paused track keeps its current lyric at the paused position.
+    func activeLyricIndex(for song: Song, at date: Date = Date()) -> Int? {
+        guard canSynchronize(song) else { return nil }
+        return TimingUtilities.activeLineIndex(
+            in: song.lines,
+            position: interpolatedPosition(for: song, at: date)
+        )
+    }
+
     func play(_ song: Song, from seconds: Double = 0) async {
         prepareToStartPlayback()
         let nextTarget = PlaybackTarget(song: song)
