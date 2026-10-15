@@ -377,7 +377,7 @@ private struct LibrarySongRow: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
 
-                    if artworkSize != .small && !song.tags.isEmpty {
+                    if artworkSize == .large && !song.tags.isEmpty {
                         HStack(spacing: 5) {
                             ForEach(song.tags, id: \.self) { tag in
                                 TagChip(name: tag)
