@@ -1,8 +1,8 @@
 #if os(iOS)
 import SwiftUI
 
-/// Presentation controls stay inside the detail column's bottom safe area on
-/// iPad, and above the home indicator on iPhone.
+/// Presentation controls stay inside the song screen's bottom safe area,
+/// above the home indicator on iPhone and iPad.
 struct MobilePlayerView: View {
     let song: Song
     @Environment(MusicPlaybackModel.self) private var playback

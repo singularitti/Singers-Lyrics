@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 
 enum LibraryArtworkSize: String, CaseIterable, Identifiable {
@@ -30,4 +29,3 @@ enum LibraryArtworkSize: String, CaseIterable, Identifiable {
         }
     }
 }
-#endif

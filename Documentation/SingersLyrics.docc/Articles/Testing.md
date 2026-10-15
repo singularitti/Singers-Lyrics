@@ -62,12 +62,13 @@ Assign the Record and Stop commands as described in <doc:LogicProRecording>, the
 
 ### Verify iPhone and iPad behavior
 
-1. On iPhone, check library-first launch, song selection, mode switching, and back navigation.
-2. On iPad, check the two-column layout, sidebar visibility, rotation, and compact multitasking windows.
-3. Edit with the keyboard visible. Check Return splitting, selection formatting, undo, annotations, and large accessibility text sizes.
-4. Transfer song bundles in both directions. Include an explicit Mac font unavailable on iOS, then save and reopen to confirm that its stored name and styles survive.
-5. On a signed device, check music authorization, audible playback, pause/seek, lyric selection, timing stamps, and same-song repetition in player mode.
-6. Check denied access, unavailable tracks, background/foreground transitions, and opening a bundle while the app is launching.
+1. On iPhone and iPad, check library-first launch, song selection, mode switching, and back navigation. Each screen should occupy the full available width. On iPad mini, check the All Songs title in portrait, landscape, and narrow multitasking windows; larger iPads should use the same single-column flow. Confirm the search field stays in the library and matches titles, singers, albums, tags, lyrics, and annotations.
+2. Combine All Songs, Recent, or Favorites with tags; check each recent time range, sorting, counts, and Clear Filters. Open a song or Trash, go back, and confirm the previous search and filters remain. Add, import, and duplicate while filtered, and confirm the result is revealed under All Songs. With zero matches, check Show All Songs and opening Trash from the filter menu.
+3. With a hardware keyboard, select a library row and delete it, then confirm the adjacent visible row stays selected without opening a song. Keyboard Delete must ignore a selection hidden by filtering and must not delete a library song while the editor or Trash is open. If the currently open song is removed by synchronization, the stack should return to the library.
+4. In Settings, change each artwork size and turn artwork off, then check list rows in narrow windows and at large accessibility text sizes. Tags should appear only at Large. Check artwork placeholders without a link or when a request fails. Edit with the keyboard visible and check Return splitting, selection formatting, undo, and annotations.
+5. Transfer song bundles in both directions. Include an explicit Mac font unavailable on iOS, then save and reopen to confirm that its stored name and styles survive.
+6. On a signed device, check music authorization, audible playback, pause/seek, lyric selection, timing stamps, and same-song repetition in player mode.
+7. Check denied access, unavailable tracks, background/foreground transitions, and opening a bundle while the app is launching or while a song or Trash is open. A new import should replace the current destination, and Back should return directly to the library.
 
 If validating offline behavior, download the song first and launch with network access disabled. Check a fresh playback request; an already buffered stream doesn't establish offline startup support. The current iOS store-ID path hasn't been verified offline.
 

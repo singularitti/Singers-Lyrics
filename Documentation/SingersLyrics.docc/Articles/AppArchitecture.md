@@ -16,7 +16,7 @@ SingersLyrics/
 ├── Models/              Library, songs, styled lyrics, and timing values
 ├── Services/            Storage, playback, metadata lookup, and fonts
 ├── Features/
-│   ├── Library/         Native Mac workspace and song management
+│   ├── Library/         Mac workspace, shared song browsing, artwork, and tags
 │   ├── Editor/          AppKit rich-text editing and formatting
 │   ├── Sync/            Timestamp adjustment controls
 │   ├── Player/          Mac lyric presentation and transport controls
@@ -65,7 +65,9 @@ Permanent deletion commits a pending marker before unlinking files, then removes
 
 The mobile scene manifest permits one window. The library and editor/player screens share one app model and playback model, so switching modes keeps the song and playback session. Restricting the app to one scene avoids independent windows competing for the same player and polling target.
 
-SwiftUI manages the iPhone navigation flow and iPad two-column presentation. Native `UITextView` instances provide lyric editing. The Mac app retains its native `NSTextView` integration and desktop window behavior.
+SwiftUI uses the same library-first `NavigationStack` on iPhone and iPad. The library, song workspace, and Trash each occupy one screen at every window width. A typed navigation path owns the current destination; returning to the library clears the active song in `AppModel` and retains browser filters. A separate library row selection supports keyboard deletion without opening a song. Native `UITextView` instances provide lyric editing. The Mac app retains its native `NSTextView` integration and desktop window behavior.
+
+`LibraryBrowserState` supplies search, scope, tag filtering, recent time ranges, and sorting on both platforms. The shared filter menu and song row keep library behavior and content consistent. Mobile uses native searchable navigation and wrapping, dynamically sized text, while Mac retains its horizontal row viewport and keyboard multiselection. Artwork and release-year views share one cached catalog loader with platform-specific image representations. Browser filters remain separate from the mobile navigation path, so back navigation restores the same search and filter context.
 
 ### Synchronize the optional cloud library
 

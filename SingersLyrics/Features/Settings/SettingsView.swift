@@ -71,9 +71,7 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            #if os(macOS)
             LibraryAppearanceSettingsSection()
-            #endif
 
             Section("iCloud") {
                 Toggle("Sync Library with iCloud", isOn: Binding(
@@ -196,7 +194,6 @@ struct SettingsView: View {
     }
 }
 
-#if os(macOS)
 private struct LibraryAppearanceSettingsSection: View {
     @AppStorage(PreferenceKey.showsLibraryArtwork) private var showsArtwork = true
     @AppStorage(PreferenceKey.libraryArtworkSize) private var artworkSize = LibraryArtworkSize.medium.rawValue
@@ -222,6 +219,7 @@ private struct LibraryAppearanceSettingsSection: View {
     }
 }
 
+#if os(macOS)
 private struct LogicProSettingsSection: View {
     @Environment(LogicProRecordingModel.self) private var logicProRecording
 

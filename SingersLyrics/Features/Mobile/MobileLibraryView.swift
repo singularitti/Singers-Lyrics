@@ -3,20 +3,19 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// A split view collapses to a library-first navigation stack on iPhone and in
-/// narrow iPad windows. The song's editor/player and Trash are detail destinations.
+/// iPhone and iPad share a single-column stack rooted in the searchable library.
+/// Opening a song or Trash replaces the visible screen until the user goes back.
 struct MobileLibraryView: View {
     let metadataLookup: any TrackMetadataLookingUp
 
     @Environment(AppModel.self) private var model
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.openURL) private var openURL
-    @State private var selection: MobileLibraryDestination?
-    @State private var visibility = NavigationSplitViewVisibility.all
-    @State private var compactColumn = NavigationSplitViewColumn.sidebar
-    @State private var search = ""
-    @State private var favoritesOnly = false
-    @AppStorage(PreferenceKey.sortMode) private var sortMode = SongSortMode.dateAdded.rawValue
+    @State private var navigationPath: [MobileLibraryDestination] = []
+    @State private var selectedSongID: UUID?
+    @State private var browser = LibraryBrowserState()
+    @AppStorage(PreferenceKey.sortMode) private var sortModeRaw = SongSortMode.title.rawValue
+    @AppStorage(PreferenceKey.showsLibraryArtwork) private var showsArtwork = true
+    @AppStorage(PreferenceKey.libraryArtworkSize) private var artworkSizeRaw = LibraryArtworkSize.medium.rawValue
     @State private var showsNewSong = false
     @State private var showsSettings = false
     @State private var showsImporter = false
@@ -25,29 +24,32 @@ struct MobileLibraryView: View {
     @State private var fileError: String?
 
     private var songs: [Song] {
-        let filtered = model.library.songs.filter { song in
-            (!favoritesOnly || song.isFavorite) && song.matchesSearch(search)
-        }
-        return (SongSortMode(rawValue: sortMode) ?? .dateAdded).sorted(filtered)
+        browser.filteredSongs(in: model.library.songs, sortedBy: SongSortMode(rawValue: sortModeRaw) ?? .title)
     }
 
+    private var artworkSize: LibraryArtworkSize {
+        LibraryArtworkSize(rawValue: artworkSizeRaw) ?? .medium
+    }
+
+    private var tagSummaries: [TagSummary] { TagSummary.summaries(for: model.library.songs) }
+    private var availableTagKeys: Set<String> { Set(tagSummaries.map(\.key)) }
+
     var body: some View {
-        NavigationSplitView(columnVisibility: $visibility, preferredCompactColumn: $compactColumn) {
+        NavigationStack(path: $navigationPath) {
             library
-                .navigationTitle("")
+                .navigationTitle(browser.title)
                 .navigationBarTitleDisplayMode(.inline)
-                .navigationSplitViewColumnWidth(min: 260, ideal: 310, max: 400)
-                .searchable(text: $search, prompt: "Songs, lyrics, annotations, tags")
+                .searchable(
+                    text: $browser.searchText,
+                    placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Search songs and lyrics"
+                )
                 .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        libraryTitle
+                    }
                     ToolbarItem(placement: .topBarLeading) {
                         Menu {
-                            Picker("Sort by", selection: $sortMode) {
-                                ForEach(SongSortMode.allCases, id: \.rawValue) { mode in
-                                    Text(mode.title).tag(mode.rawValue)
-                                }
-                            }
-                            Toggle("Favorites only", isOn: $favoritesOnly)
-                            Divider()
                             Button("Export Library", systemImage: "square.and.arrow.up") {
                                 export(model.library.songs)
                             }
@@ -57,6 +59,9 @@ struct MobileLibraryView: View {
                             Image(systemName: "ellipsis.circle")
                         }
                         .accessibilityLabel("Library options")
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        LibraryFilterMenu(browser: $browser, onOpenTrash: showTrash)
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
@@ -74,33 +79,41 @@ struct MobileLibraryView: View {
                         .disabled(!model.isLoaded)
                     }
                 }
-        } detail: {
-            switch selection {
-            case .song(let id):
-                if let song = binding(for: id) {
-                    MobileSongWorkspace(song: song, metadataLookup: metadataLookup)
-                        .id(id)
-                } else {
-                    songPlaceholder
+                .navigationDestination(for: MobileLibraryDestination.self) { destination in
+                    switch destination {
+                    case .song(let id):
+                        if let song = binding(for: id) {
+                            MobileSongWorkspace(song: song, metadataLookup: metadataLookup)
+                                .id(id)
+                        } else {
+                            ContentUnavailableView("Song Unavailable", systemImage: "music.note.list")
+                        }
+                    case .trash:
+                        MobileTrashView()
+                    }
                 }
-            case .trash:
-                MobileTrashView()
-            case nil:
-                songPlaceholder
-            }
         }
-        .navigationSplitViewStyle(.balanced)
-        .onChange(of: selection) { _, destination in
-            if destination == .trash {
+        .onChange(of: availableTagKeys, initial: true) { _, keys in
+            browser.selectedTagKeys.formIntersection(keys)
+        }
+        .onChange(of: navigationPath) { _, path in
+            switch path.last {
+            case .song(let id):
+                selectedSongID = id
+                model.selectSong(id)
+            case .trash:
+                selectedSongID = nil
                 model.showRecordingTrash()
-            } else {
-                model.selectSong(destination?.songID)
+            case nil:
+                model.selectSong(nil)
             }
         }
         .onChange(of: model.library.songs.map(\.id)) { _, ids in
-            if let songID = selection?.songID, !ids.contains(songID) {
-                self.selection = nil
-                compactColumn = .sidebar
+            if let songID = navigationPath.last?.songID, !ids.contains(songID) {
+                navigationPath = []
+            }
+            if let selectedSongID, !ids.contains(selectedSongID) {
+                self.selectedSongID = nil
             }
         }
         .sheet(isPresented: $showsNewSong) {
@@ -186,54 +199,32 @@ struct MobileLibraryView: View {
         }
     }
 
-    private var songPlaceholder: some View {
-        ContentUnavailableView(
-            "Choose a Song",
-            systemImage: "music.note.list",
-            description: Text("Select music from your library to edit or play its lyrics.")
-        )
-    }
-
-    private var showsTrashItem: Bool {
-        // The empty-library overlay offers Trash instead of covering this row.
-        model.isLoaded && !model.library.songs.isEmpty
-            && search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private var libraryTitle: some View {
+        VStack(spacing: 2) {
+            Text(browser.title)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Text(browser.summary(songCount: songs.count, tags: tagSummaries))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("songListSummary")
+        }
+        .lineLimit(1)
+        .accessibilityElement(children: .combine)
     }
 
     private var library: some View {
-        List(selection: $selection) {
-            if favoritesOnly {
-                Section {
-                    Button("Show All Songs", systemImage: "line.3.horizontal.decrease.circle") {
-                        favoritesOnly = false
-                    }
-                }
-            }
+        List(selection: $selectedSongID) {
             ForEach(songs) { song in
                 NavigationLink(value: MobileLibraryDestination.song(song.id)) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(song.title.isEmpty ? "Untitled" : song.title)
-                                .font(.headline)
-                                .lineLimit(2)
-                            if !song.artist.isEmpty {
-                                Text(song.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                            }
-                            if !song.album.isEmpty {
-                                Text(song.album).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            }
-                        }
-                        Spacer(minLength: 0)
-                        // Titles stay aligned; only favorites carry a mark.
-                        if song.isFavorite {
-                            Image(systemName: "heart.fill")
-                                .font(.caption)
-                                .foregroundStyle(.pink)
-                                .accessibilityLabel("Favorite")
-                        }
-                    }
-                    .padding(.vertical, 4)
+                    LibrarySongRow(song: song, showsArtwork: showsArtwork, artworkSize: artworkSize)
                 }
+                .tag(song.id)
+                .listRowInsets(EdgeInsets(top: artworkSize.rowVerticalPadding, leading: 16,
+                                         bottom: artworkSize.rowVerticalPadding, trailing: 16))
+                .alignmentGuide(.listRowSeparatorLeading) { [inset = showsArtwork ? artworkSize.dimension + 12 : 0] _ in inset }
+                .listRowSeparator(.visible)
+                .accessibilityIdentifier("songRow-\(song.id)")
                 .contextMenu {
                     Button(song.isFavorite ? "Remove Favorite" : "Favorite", systemImage: "heart") {
                         model.toggleFavorite(songID: song.id)
@@ -254,24 +245,16 @@ struct MobileLibraryView: View {
                     .tint(.pink)
                 }
             }
-
-            if showsTrashItem {
-                Section {
-                    NavigationLink(value: MobileLibraryDestination.trash) {
-                        Label("Trash", systemImage: "trash")
-                    }
-                    .badge(model.trashedItemCount)
-                    .accessibilityLabel("Trash, \(model.library.trashedSongs.count) songs, \(model.recordingsInTrash.count) recordings")
-                    .accessibilityIdentifier("mobileTrashItem")
-                }
-            }
         }
+        .listStyle(.plain)
+        .scrollDismissesKeyboard(.interactively)
         .onKeyPress(keys: [.delete, .deleteForward], phases: .down) { press in
             // Caps Lock and keypad state do not change the meaning of Delete.
             let modifiers = press.modifiers.subtracting([.capsLock, .numericPad])
             // A search can hide the selected song; never delete what isn't listed.
-            guard modifiers.isEmpty || modifiers == .command,
-                  let songID = selection?.songID,
+            guard navigationPath.isEmpty,
+                  modifiers.isEmpty || modifiers == .command,
+                  let songID = selectedSongID,
                   songs.contains(where: { $0.id == songID }) else { return .ignored }
             moveSongToTrash(songID)
             return .handled
@@ -294,12 +277,15 @@ struct MobileLibraryView: View {
                     }
                 }
             } else if songs.isEmpty {
-                ContentUnavailableView(
-                    favoritesOnly ? "No Matching Favorites" : "No Matching Songs",
-                    systemImage: "magnifyingglass",
-                    description: Text("Try another search or change the library filter.")
-                )
-                .allowsHitTesting(false)
+                ContentUnavailableView {
+                    Label("No Matching Songs", systemImage: "magnifyingglass")
+                } description: {
+                    Text("Try another search or change your filters.")
+                } actions: {
+                    Button("Show All Songs") {
+                        browser.showAllSongs()
+                    }
+                }
             }
         }
         .accessibilityIdentifier("mobileLibrary")
@@ -314,29 +300,28 @@ struct MobileLibraryView: View {
     }
 
     private func open(_ id: UUID) {
-        selection = .song(id)
+        // Explicit add, import and duplicate actions reveal their result even
+        // when it has never been played or doesn't match the previous filters.
+        browser.showAllSongs()
+        selectedSongID = id
+        navigationPath = [.song(id)]
         model.selectSong(id)
-        compactColumn = .detail
     }
 
     private func showTrash() {
-        selection = .trash
-        compactColumn = .detail
+        navigationPath = [.trash]
     }
 
-    /// The hardware Delete key moves the selected song to Trash. On iPad the
-    /// adjacent visible song becomes selected so repeated presses keep working
-    /// from the keyboard.
+    /// Keyboard deletion stays in the library and selects the adjacent visible
+    /// row, allowing repeated presses without navigating into the song.
     private func moveSongToTrash(_ id: UUID) {
         let visibleIDs = songs.map(\.id)
         model.deleteSong(id)
         // Deletion is refused while Trash is purging or a take cannot be saved.
         guard model.song(withID: id) == nil,
-              horizontalSizeClass == .regular,
               let index = visibleIDs.firstIndex(of: id) else { return }
         let remainingIDs = visibleIDs.filter { $0 != id }
-        guard !remainingIDs.isEmpty else { return }
-        selection = .song(remainingIDs[min(index, remainingIDs.count - 1)])
+        selectedSongID = remainingIDs.isEmpty ? nil : remainingIDs[min(index, remainingIDs.count - 1)]
     }
 
     private func export(_ songs: [Song]) {
@@ -358,8 +343,6 @@ struct MobileLibraryView: View {
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         let bundle = try SongBundleCodec.decode(contentsOf: url)
         if let id = model.importSongs(bundle.songs).first {
-            search = ""
-            favoritesOnly = false
             open(id)
         }
     }

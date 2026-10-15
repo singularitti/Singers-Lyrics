@@ -199,28 +199,18 @@ struct SongLibraryHeader: View {
     @AppStorage(PreferenceKey.sortMode) private var sortModeRaw = SongSortMode.title.rawValue
 
     private var tagSummaries: [TagSummary] { TagSummary.summaries(for: model.library.songs) }
-    private var hasFilters: Bool { browser.hasFilters }
     private var songs: [Song] {
         browser.filteredSongs(in: model.library.songs, sortedBy: SongSortMode(rawValue: sortModeRaw) ?? .title)
     }
 
-    private var title: String {
-        browser.scope == .all && !browser.selectedTagKeys.isEmpty ? "Filtered Songs" : browser.scope.title
-    }
-
     private var subtitle: String {
-        let count = songs.count
-        var parts = [count == 1 ? "1 song" : "\(count) songs"]
-        if browser.scope == .recent { parts.append(browser.recentScope.title) }
-        let names = tagSummaries.filter { browser.selectedTagKeys.contains($0.key) }.map(\.name)
-        if !names.isEmpty { parts.append(names.joined(separator: ", ")) }
-        return parts.joined(separator: " · ")
+        browser.summary(songCount: songs.count, tags: tagSummaries)
     }
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title)
+                Text(browser.title)
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                     .accessibilityAddTraits(.isHeader)
@@ -238,164 +228,13 @@ struct SongLibraryHeader: View {
     }
 
     private var filterMenu: some View {
-        Menu {
-            Section("Show") {
-                ForEach(LibraryScope.allCases) { option in
-                    Button {
-                        browser.scope = option
-                        if option == .all { browser.selectedTagKeys = [] }
-                        leaveTrash()
-                    } label: {
-                        if browser.scope == option && (option != .all || browser.selectedTagKeys.isEmpty) {
-                            Label(option.title, systemImage: "checkmark")
-                        } else {
-                            Text(option.title)
-                        }
-                    }
-                }
-            }
-
-            Menu("Recent Time Range") {
-                ForEach(RecentScope.allCases) { option in
-                    Button {
-                        browser.recentScope = option
-                        browser.scope = .recent
-                        leaveTrash()
-                    } label: {
-                        if browser.scope == .recent && browser.recentScope == option {
-                            Label(option.title, systemImage: "checkmark")
-                        } else {
-                            Text(option.title)
-                        }
-                    }
-                }
-            }
-
-            Menu("Tags") {
-                if tagSummaries.isEmpty {
-                    Text("No Tags")
-                } else {
-                    ForEach(tagSummaries) { tag in
-                        Toggle("\(tag.name) (\(tag.songCount))", isOn: Binding(
-                            get: { browser.selectedTagKeys.contains(tag.key) },
-                            set: { selected in
-                                if selected { browser.selectedTagKeys.insert(tag.key) }
-                                else { browser.selectedTagKeys.remove(tag.key) }
-                                leaveTrash()
-                            }
-                        ))
-                    }
-                }
-            }
-
-            Divider()
-
-            Menu("Sort By") {
-                Picker("Sort By", selection: $sortModeRaw) {
-                    ForEach(SongSortMode.allCases, id: \.rawValue) { option in
-                        Text(option.title).tag(option.rawValue)
-                    }
-                }
-                .pickerStyle(.inline)
-            }
-            .disabled(browser.scope == .recent)
-
-            if hasFilters {
-                Button("Clear Filters", systemImage: "line.3.horizontal.decrease.circle") {
-                    clearFilters()
-                }
-            }
-
-            Divider()
-
-            Button("Trash (\(model.trashedItemCount))", systemImage: "trash") {
-                model.showRecordingTrash()
-            }
-            .accessibilityIdentifier("libraryTrashMenuItem")
-        } label: {
-            Image(systemName: hasFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(hasFilters ? Color.accentColor : Color.secondary)
-                .frame(width: 28, height: 30)
-                .contentShape(Rectangle())
+        LibraryFilterMenu(browser: $browser, onFilterChange: leaveTrash) {
+            model.showRecordingTrash()
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Filter and Sort Songs")
-        .accessibilityLabel("Filter and Sort Songs")
-        .accessibilityValue(hasFilters ? subtitle : "All Songs")
-        .accessibilityIdentifier("libraryFilterButton")
-    }
-
-    private func clearFilters() {
-        browser.scope = .all
-        browser.selectedTagKeys = []
-        leaveTrash()
     }
 
     private func leaveTrash() {
         if model.isShowingRecordingTrash { model.selectSong(nil) }
-    }
-}
-
-private struct LibrarySongRow: View {
-    let song: Song
-    let showsArtwork: Bool
-    let artworkSize: LibraryArtworkSize
-
-    private var album: String { song.album.isEmpty ? "Unknown Album" : song.album }
-    private var title: String { song.title.isEmpty ? "Untitled" : song.title }
-    private var artist: String { song.artist.isEmpty ? "Unknown Singer" : song.artist }
-
-    var body: some View {
-        LibraryRowScrollView {
-            HStack(alignment: artworkSize == .medium ? .top : .center, spacing: 12) {
-                if showsArtwork {
-                    SongArtworkView(appleMusicURL: song.appleMusicURL, size: artworkSize.dimension)
-                }
-
-                VStack(alignment: .leading, spacing: artworkSize == .small ? 3 : 5) {
-                    HStack(spacing: 5) {
-                        Text(album)
-                            .font(.system(size: 11, weight: .medium))
-                        if song.isFavorite {
-                            Image(systemName: "heart.fill")
-                                .font(.system(size: 9))
-                                .accessibilityLabel("Favorite")
-                        }
-                    }
-                    .foregroundStyle(.secondary)
-
-                    Text(title)
-                        .font(.system(size: 17, weight: .semibold))
-
-                    HStack(spacing: 4) {
-                        Text(artist)
-                        SongReleaseYearView(appleMusicURL: song.appleMusicURL)
-                    }
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-
-                    if artworkSize == .large && !song.tags.isEmpty {
-                        HStack(spacing: 5) {
-                            ForEach(song.tags, id: \.self) { tag in
-                                TagChip(name: tag)
-                            }
-                        }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("Tags: \(song.tags.joined(separator: ", "))")
-                    }
-                }
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: true)
-            }
-            .frame(minHeight: showsArtwork ? artworkSize.dimension : 0, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(title)
     }
 }
 
@@ -444,77 +283,5 @@ private struct LibrarySearchField: View {
     }
 }
 
-/// Owned by ContentView so hiding the sidebar preserves the current search and filters.
-struct LibraryBrowserState {
-    var searchText = ""
-    var scope = LibraryScope.all
-    var recentScope = RecentScope.today
-    var selectedTagKeys: Set<String> = []
 
-    var hasFilters: Bool { scope != .all || !selectedTagKeys.isEmpty }
-
-    func filteredSongs(in librarySongs: [Song], sortedBy sortMode: SongSortMode) -> [Song] {
-        let filtered = librarySongs.filter { song in
-            switch scope {
-            case .all: break
-            case .favorites:
-                guard song.isFavorite else { return false }
-            case .recent:
-                guard let date = song.lastPlayedAt, recentScope.contains(date) else { return false }
-            }
-            guard selectedTagKeys.isEmpty || song.tags.contains(where: {
-                selectedTagKeys.contains(TagAppearance.normalizedKey($0))
-            }) else { return false }
-            return song.matchesSearch(searchText)
-        }
-        if scope == .recent {
-            return filtered.sorted {
-                if $0.lastPlayedAt != $1.lastPlayedAt {
-                    return ($0.lastPlayedAt ?? .distantPast) > ($1.lastPlayedAt ?? .distantPast)
-                }
-                return $0.id.uuidString < $1.id.uuidString
-            }
-        }
-        return sortMode.sorted(filtered)
-    }
-}
-
-enum LibraryScope: String, CaseIterable, Identifiable {
-    case all, recent, favorites
-    var id: Self { self }
-    var title: String {
-        switch self {
-        case .all: "All Songs"
-        case .recent: "Recent"
-        case .favorites: "Favorites"
-        }
-    }
-}
-
-enum RecentScope: String, CaseIterable, Identifiable {
-    case today, yesterday, inLastWeek
-    var id: Self { self }
-    var title: String {
-        switch self {
-        case .today: "Today"
-        case .yesterday: "Yesterday"
-        case .inLastWeek: "In Last Week"
-        }
-    }
-
-    func contains(_ date: Date, relativeTo now: Date = Date(), calendar: Calendar = .autoupdatingCurrent) -> Bool {
-        let today = calendar.startOfDay(for: now)
-        guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return false }
-        switch self {
-        case .today:
-            return date >= today && date < tomorrow
-        case .yesterday:
-            guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today) else { return false }
-            return date >= yesterday && date < today
-        case .inLastWeek:
-            guard let start = calendar.date(byAdding: .day, value: -6, to: today) else { return false }
-            return date >= start && date < tomorrow
-        }
-    }
-}
 #endif

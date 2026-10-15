@@ -1,7 +1,22 @@
-#if os(macOS)
-import AppKit
 import OSLog
 import SwiftUI
+#if os(macOS)
+import AppKit
+private typealias SongArtworkImage = NSImage
+#elseif os(iOS)
+import UIKit
+private typealias SongArtworkImage = UIImage
+#endif
+
+private extension Image {
+    init(songArtwork: SongArtworkImage) {
+        #if os(macOS)
+        self.init(nsImage: songArtwork)
+        #elseif os(iOS)
+        self.init(uiImage: songArtwork)
+        #endif
+    }
+}
 
 /// Decorative artwork for an Apple Music link. Lookup and download failures keep the placeholder.
 @MainActor
@@ -9,7 +24,7 @@ struct SongArtworkView: View {
     let appleMusicURL: URL?
     var size: CGFloat = 68
 
-    @State private var artwork: NSImage?
+    @State private var artwork: SongArtworkImage?
 
     var body: some View {
         ZStack {
@@ -17,7 +32,7 @@ struct SongArtworkView: View {
                 .fill(.primary.opacity(0.055))
 
             if let artwork {
-                Image(nsImage: artwork)
+                Image(songArtwork: artwork)
                     .resizable()
                     .scaledToFill()
             } else {
@@ -61,7 +76,7 @@ struct SongReleaseYearView: View {
     }
 }
 
-/// Main-actor ownership keeps AppKit images and request bookkeeping off concurrency boundaries.
+/// Main-actor ownership keeps platform images and request bookkeeping off concurrency boundaries.
 @MainActor
 private final class SongArtworkLoader {
     static let shared = SongArtworkLoader()
@@ -74,9 +89,9 @@ private final class SongArtworkLoader {
     }
 
     private final class CachedImage {
-        let image: NSImage
+        let image: SongArtworkImage
         let date = Date()
-        init(_ image: NSImage) { self.image = image }
+        init(_ image: SongArtworkImage) { self.image = image }
     }
 
     private struct PendingRequest<Value: Sendable> {
@@ -109,7 +124,7 @@ private final class SongArtworkLoader {
     private let catalogCache = NSCache<NSString, CachedCatalog>()
     private var failures: [LookupKey: Date] = [:]
     private var catalogFailures: [LookupKey: Date] = [:]
-    private var pending: [LookupKey: PendingRequest<NSImage>] = [:]
+    private var pending: [LookupKey: PendingRequest<SongArtworkImage>] = [:]
     private var pendingCatalog: [LookupKey: PendingRequest<CatalogMetadata>] = [:]
     private let session: URLSession
     private let thumbnailDirectory: URL?
@@ -141,7 +156,7 @@ private final class SongArtworkLoader {
         pruneDiskCache(fileExtension: "catalog", maximumBytes: 1_024 * 1_024)
     }
 
-    func image(for url: URL) async -> NSImage? {
+    func image(for url: URL) async -> SongArtworkImage? {
         guard !Task.isCancelled, let key = lookupKey(for: url) else { return nil }
         return await image(for: key)
     }
@@ -160,7 +175,7 @@ private final class SongArtworkLoader {
         return LookupKey(trackID: trackID, country: country)
     }
 
-    private func image(for key: LookupKey) async -> NSImage? {
+    private func image(for key: LookupKey) async -> SongArtworkImage? {
         if let cached = cache.object(forKey: key.cacheKey) {
             if Date().timeIntervalSince(cached.date) < 24 * 60 * 60 { return cached.image }
             cache.removeObject(forKey: key.cacheKey)
@@ -175,7 +190,7 @@ private final class SongArtworkLoader {
         failures[key] = nil
 
         let waiter = UUID()
-        let request: PendingRequest<NSImage>
+        let request: PendingRequest<SongArtworkImage>
         if var existing = pending[key] {
             existing.waiters.insert(waiter)
             pending[key] = existing
@@ -215,7 +230,7 @@ private final class SongArtworkLoader {
         }
     }
 
-    private func finish(_ key: LookupKey, token: UUID, image: NSImage?) {
+    private func finish(_ key: LookupKey, token: UUID, image: SongArtworkImage?) {
         guard pending[key]?.token == token else { return }
         pending[key] = nil
         guard !Task.isCancelled else { return }
@@ -342,7 +357,7 @@ private final class SongArtworkLoader {
         return (1...9999).contains(year) ? year : nil
     }
 
-    private func fetchImage(_ key: LookupKey) async -> NSImage? {
+    private func fetchImage(_ key: LookupKey) async -> SongArtworkImage? {
         do {
             guard let metadata = await catalog(for: key), !Task.isCancelled,
                   let artworkURL = metadata.artworkURL,
@@ -350,7 +365,7 @@ private final class SongArtworkLoader {
             let (imageData, imageResponse) = try await session.data(from: artworkURL)
             Self.logger.debug("Artwork download HTTP status: \((imageResponse as? HTTPURLResponse)?.statusCode ?? 0), bytes: \(imageData.count)")
             guard Self.succeeded(imageResponse), !Task.isCancelled else { return nil }
-            guard let image = NSImage(data: imageData) else { return nil }
+            guard let image = SongArtworkImage(data: imageData) else { return nil }
             if imageData.count <= maximumThumbnailBytes, let file = thumbnailURL(for: key) {
                 // Persist only successful image bytes, independently of HTTP cache headers.
                 try? imageData.write(to: file, options: .atomic)
@@ -363,9 +378,14 @@ private final class SongArtworkLoader {
         }
     }
 
-    private func cacheImage(_ image: NSImage, for key: LookupKey) {
+    private func cacheImage(_ image: SongArtworkImage, for key: LookupKey) {
+        #if os(macOS)
         let pixels = image.representations.first
         let cost = (pixels?.pixelsWide ?? 300) * (pixels?.pixelsHigh ?? 300) * 4
+        #elseif os(iOS)
+        let cost = image.cgImage.map { $0.bytesPerRow * $0.height }
+            ?? Int(image.size.width * image.scale) * Int(image.size.height * image.scale) * 4
+        #endif
         cache.setObject(CachedImage(image), forKey: key.cacheKey, cost: cost)
     }
 
@@ -377,11 +397,11 @@ private final class SongArtworkLoader {
         thumbnailDirectory?.appendingPathComponent("\(key.country)-\(key.trackID).catalog")
     }
 
-    private func diskImage(for key: LookupKey) -> NSImage? {
+    private func diskImage(for key: LookupKey) -> SongArtworkImage? {
         guard let file = thumbnailURL(for: key),
               let attributes = try? file.resourceValues(forKeys: [.fileSizeKey]),
               let size = attributes.fileSize, size <= maximumThumbnailBytes else { return nil }
-        guard let data = try? Data(contentsOf: file), let image = NSImage(data: data) else {
+        guard let data = try? Data(contentsOf: file), let image = SongArtworkImage(data: data) else {
             try? FileManager.default.removeItem(at: file)
             return nil
         }
@@ -418,4 +438,3 @@ private final class SongArtworkLoader {
         return (200..<300).contains(http.statusCode)
     }
 }
-#endif

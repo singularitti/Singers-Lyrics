@@ -278,7 +278,7 @@ struct MobileLyricsEditorView: View {
     }
 
     /// One Liquid Glass panel keeps timing and editing controls legible while
-    /// staying within the detail column on iPad.
+    /// staying within the song screen's safe area on iPhone and iPad.
     private var timingDock: some View {
         VStack(spacing: 8) {
             if keyboardIsVisible || lyricEditorIsActive {
