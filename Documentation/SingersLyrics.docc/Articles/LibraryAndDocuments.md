@@ -8,6 +8,12 @@ The Mac and iOS targets share the local library model and version-2 song documen
 
 The app starts with an empty library and doesn't search for, read, import, or modify the legacy Glaze library or `songs.json`.
 
+### Search the library
+
+On Mac, iPhone, and iPad, the library search matches song titles, singers, albums, tags, lyric text, and each lyric line's annotation or pronunciation note. Enter part of a field's text to find its song; matching ignores case and diacritics. Rich-text formatting doesn't interrupt lyric matches. Leading and trailing whitespace is ignored, and an empty search shows all songs allowed by the current filters.
+
+Search combines with the active library filters and preserves the library's sorting behavior. Results are songs from the active library; songs in Trash are excluded.
+
 ### Store the library
 
 On Mac, the library is stored at:

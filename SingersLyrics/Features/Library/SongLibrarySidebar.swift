@@ -409,11 +409,13 @@ private struct LibrarySearchField: View {
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
 
-            TextField("Search songs", text: $text)
+            TextField("Search songs and lyrics", text: $text)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
                 .accessibilityLabel("Search Songs")
+                .accessibilityHint("Search titles, singers, albums, lyrics, annotations, and tags")
                 .accessibilityIdentifier("songSearchField")
+                .help("Search titles, singers, albums, lyrics, annotations, and tags")
                 .onExitCommand { text = "" }
 
             if !text.isEmpty {
@@ -452,7 +454,6 @@ struct LibraryBrowserState {
     var hasFilters: Bool { scope != .all || !selectedTagKeys.isEmpty }
 
     func filteredSongs(in librarySongs: [Song], sortedBy sortMode: SongSortMode) -> [Song] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let filtered = librarySongs.filter { song in
             switch scope {
             case .all: break
@@ -464,8 +465,7 @@ struct LibraryBrowserState {
             guard selectedTagKeys.isEmpty || song.tags.contains(where: {
                 selectedTagKeys.contains(TagAppearance.normalizedKey($0))
             }) else { return false }
-            return query.isEmpty || [song.title, song.artist, song.album, song.tags.joined(separator: " ")]
-                .joined(separator: " ").localizedStandardContains(query)
+            return song.matchesSearch(searchText)
         }
         if scope == .recent {
             return filtered.sorted {

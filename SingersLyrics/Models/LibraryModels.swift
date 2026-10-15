@@ -82,6 +82,21 @@ struct Song: Codable, Equatable, Identifiable, Sendable {
         linkedTrackMetadata ?? TrackMetadata(title: title, artist: artist, album: album)
     }
 
+    /// Shared by the Mac, iPhone, and iPad library searches.
+    func matchesSearch(_ searchText: String) -> Bool {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+
+        let metadata = [title, artist, album, tags.joined(separator: " ")]
+            .joined(separator: " ")
+        if metadata.localizedStandardContains(query) { return true }
+
+        return lines.contains { line in
+            line.lyric.plainText.localizedStandardContains(query)
+                || line.annotation.localizedStandardContains(query)
+        }
+    }
+
     init(
         id: UUID,
         title: String,

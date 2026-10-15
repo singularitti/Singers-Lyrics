@@ -25,11 +25,8 @@ struct MobileLibraryView: View {
     @State private var fileError: String?
 
     private var songs: [Song] {
-        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
         let filtered = model.library.songs.filter { song in
-            (!favoritesOnly || song.isFavorite) && (query.isEmpty ||
-                [song.title, song.artist, song.album, song.tags.joined(separator: " ")]
-                    .contains { $0.localizedStandardContains(query) })
+            (!favoritesOnly || song.isFavorite) && song.matchesSearch(search)
         }
         return (SongSortMode(rawValue: sortMode) ?? .dateAdded).sorted(filtered)
     }
@@ -40,7 +37,7 @@ struct MobileLibraryView: View {
                 .navigationTitle("")
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 310, max: 400)
-                .searchable(text: $search, prompt: "Songs, singers, albums, tags")
+                .searchable(text: $search, prompt: "Songs, lyrics, annotations, tags")
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         Menu {
