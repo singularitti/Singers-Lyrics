@@ -22,15 +22,20 @@ struct MobilePlayerView: View {
     private var fontSize: CGFloat { CGFloat(lyricSize * typeScale) }
     private var hasTiming: Bool { song.lines.contains { $0.timestampSeconds != nil } }
 
-    private enum ControlMetrics {
-        static let spacing: CGFloat = 8
-        static let textSizeButtonWidth: CGFloat = 32
-        static let utilityButtonWidth: CGFloat = 44
-        static let playButtonSize: CGFloat = 60
-        static let playbackWidth = utilityButtonWidth * 2 + playButtonSize + spacing * 2
-        static let presentationWidth = textSizeButtonWidth * 2 + spacing
-            + utilityButtonWidth * CGFloat(PlayerLyricAlignment.allCases.count)
-        static let rowWidth = presentationWidth + playbackWidth + utilityButtonWidth + spacing * 2
+    private struct ControlMetrics {
+        let spacing: CGFloat
+        let textSizeButtonWidth: CGFloat
+        let utilityButtonWidth: CGFloat
+        let playButtonSize: CGFloat
+
+        static let regular = Self(spacing: 8, textSizeButtonWidth: 32, utilityButtonWidth: 44, playButtonSize: 60)
+        static let compact = Self(spacing: 4, textSizeButtonWidth: 28, utilityButtonWidth: 40, playButtonSize: 44)
+
+        var rowWidth: CGFloat {
+            textSizeButtonWidth * 2
+                + utilityButtonWidth * CGFloat(PlayerLyricAlignment.allCases.count + 1)
+                + playButtonSize + spacing * 3
+        }
     }
 
     var body: some View {
@@ -183,66 +188,45 @@ struct MobilePlayerView: View {
                     .frame(minWidth: 38, alignment: .trailing)
             }
             ViewThatFits(in: .horizontal) {
-                widePlayerControls(position: position, duration: duration)
-                stackedPlayerControls(position: position, duration: duration)
+                playerControls(metrics: .regular)
+                playerControls(metrics: .compact)
             }
         }
         // Fit one complete button row plus padding, regardless of orientation or sidebar state.
-        .frame(maxWidth: ControlMetrics.rowWidth)
+        .frame(maxWidth: ControlMetrics.regular.rowWidth)
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 20))
         .frame(maxWidth: .infinity)
     }
 
-    private func widePlayerControls(position: Double, duration: Double?) -> some View {
-        HStack(spacing: ControlMetrics.spacing) {
-            presentationControls
-
-            playbackButtons(position: position, duration: duration)
-                .frame(width: ControlMetrics.playbackWidth)
-
-            followButton
+    private func playerControls(metrics: ControlMetrics) -> some View {
+        HStack(spacing: metrics.spacing) {
+            presentationControls(metrics: metrics)
+            followButton(width: metrics.utilityButtonWidth)
+            playPauseButton(size: metrics.playButtonSize)
         }
         .fixedSize(horizontal: true, vertical: false)
         .buttonStyle(.plain)
         .font(.system(size: 17))
     }
 
-    private func stackedPlayerControls(position: Double, duration: Double?) -> some View {
-        VStack(spacing: 8) {
-            HStack(spacing: ControlMetrics.spacing) {
-                presentationControls
-
-                Spacer(minLength: 0)
-
-                followButton
-            }
-
-            playbackButtons(position: position, duration: duration)
-                .frame(width: 200)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.plain)
-        .font(.system(size: 17))
-    }
-
-    private var presentationControls: some View {
-        HStack(spacing: ControlMetrics.spacing) {
-            textSizeControls
+    private func presentationControls(metrics: ControlMetrics) -> some View {
+        HStack(spacing: metrics.spacing) {
+            textSizeControls(width: metrics.textSizeButtonWidth)
             PlayerLyricAlignmentControls(
                 selection: $lyricAlignment,
                 spacing: 0,
-                buttonWidth: ControlMetrics.utilityButtonWidth
+                buttonWidth: metrics.utilityButtonWidth
             )
         }
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    private var textSizeControls: some View {
+    private func textSizeControls(width: CGFloat) -> some View {
         HStack(spacing: 0) {
             Button { lyricSize = max(24, lyricSize - 2) } label: {
                 Image(systemName: "textformat.size.smaller")
-                    .frame(width: ControlMetrics.textSizeButtonWidth, height: ControlMetrics.utilityButtonWidth)
+                    .frame(width: width, height: 44)
                     .contentShape(Rectangle())
             }
             .disabled(lyricSize <= 24)
@@ -250,7 +234,7 @@ struct MobilePlayerView: View {
 
             Button { lyricSize = min(64, lyricSize + 2) } label: {
                 Image(systemName: "textformat.size.larger")
-                    .frame(width: ControlMetrics.textSizeButtonWidth, height: ControlMetrics.utilityButtonWidth)
+                    .frame(width: width, height: 44)
                     .contentShape(Rectangle())
             }
             .disabled(lyricSize >= 64)
@@ -258,10 +242,10 @@ struct MobilePlayerView: View {
         }
     }
 
-    private var followButton: some View {
+    private func followButton(width: CGFloat) -> some View {
         Button { followRequest = UUID() } label: {
             Image(systemName: autoFollow ? "location.fill" : "location")
-                .frame(width: ControlMetrics.utilityButtonWidth, height: ControlMetrics.utilityButtonWidth)
+                .frame(width: width, height: 44)
                 .contentShape(Rectangle())
         }
         .disabled(!hasTiming)
@@ -269,53 +253,25 @@ struct MobilePlayerView: View {
         .accessibilityValue(autoFollow ? "Following" : "Paused while scrolling")
     }
 
-    private func playbackButtons(position: Double, duration: Double?) -> some View {
-        HStack(spacing: 0) {
-            Button {
-                perform { await playback.seek(song, to: max(0, position - 5)) }
-            } label: {
-                Image(systemName: "gobackward.5")
-                    .font(.system(size: 22))
-                    .frame(width: ControlMetrics.utilityButtonWidth, height: ControlMetrics.utilityButtonWidth)
-                    .contentShape(Rectangle())
-            }
-            .disabled(duration == nil || isPerformingAction)
-            .accessibilityLabel("Back 5 seconds")
-
-            Spacer(minLength: ControlMetrics.spacing)
-
-            Button {
-                perform { await playback.togglePlayback(for: song) }
-            } label: {
-                ZStack {
-                    if isPerformingAction {
-                        ProgressView().tint(.white)
-                    } else {
-                        Image(systemName: playback.isPlaying(song) ? "pause.fill" : "play.fill")
-                            .font(.system(size: 24))
-                    }
+    private func playPauseButton(size: CGFloat) -> some View {
+        Button {
+            perform { await playback.togglePlayback(for: song) }
+        } label: {
+            ZStack {
+                if isPerformingAction {
+                    ProgressView().tint(.white)
+                } else {
+                    Image(systemName: playback.isPlaying(song) ? "pause.fill" : "play.fill")
+                        .font(.system(size: 24))
                 }
-                .frame(width: ControlMetrics.playButtonSize, height: ControlMetrics.playButtonSize)
-                .foregroundStyle(.white)
-                .background(.tint, in: Circle())
             }
-            .disabled(isPerformingAction)
-            .accessibilityLabel(playback.isPlaying(song) ? "Pause" : "Play")
-            .accessibilityIdentifier("mobilePlayerPlayPause")
-
-            Spacer(minLength: ControlMetrics.spacing)
-
-            Button {
-                perform { await playback.seek(song, to: min(duration ?? 0, position + 5)) }
-            } label: {
-                Image(systemName: "goforward.5")
-                    .font(.system(size: 22))
-                    .frame(width: ControlMetrics.utilityButtonWidth, height: ControlMetrics.utilityButtonWidth)
-                    .contentShape(Rectangle())
-            }
-            .disabled(duration == nil || isPerformingAction)
-            .accessibilityLabel("Forward 5 seconds")
+            .frame(width: size, height: size)
+            .foregroundStyle(.white)
+            .background(.tint, in: Circle())
         }
+        .disabled(isPerformingAction)
+        .accessibilityLabel(playback.isPlaying(song) ? "Pause" : "Play")
+        .accessibilityIdentifier("mobilePlayerPlayPause")
     }
 
     private func perform(_ action: @escaping @MainActor () async -> Void) {

@@ -354,20 +354,6 @@ struct PlayerView: View {
                 PlayerLyricAlignmentControls(selection: $lyricAlignment)
 
                 Button {
-                    Task {
-                        await playback.togglePlayback(for: song)
-                        logicProRecording.startRecording(songID: song.id, isPlaying: playback.isPlaying(song))
-                    }
-                } label: {
-                    Image(systemName: playback.isPlaying(song) ? "pause.fill" : "play.fill")
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .accessibilityLabel(playback.isPlaying(song) ? "Pause" : "Play")
-                .accessibilityIdentifier("playerPlayPauseButton")
-
-                Button {
                     if logicProRecording.isArmed {
                         logicProRecording.setArmed(false)
                     } else {
@@ -396,6 +382,20 @@ struct PlayerView: View {
                 .accessibilityLabel("Follow Current Lyric")
                 .accessibilityValue(autoFollow ? "Following" : "Paused while scrolling")
                 .accessibilityIdentifier("followCurrentLyricButton")
+
+                Button {
+                    Task {
+                        await playback.togglePlayback(for: song)
+                        logicProRecording.startRecording(songID: song.id, isPlaying: playback.isPlaying(song))
+                    }
+                } label: {
+                    Image(systemName: playback.isPlaying(song) ? "pause.fill" : "play.fill")
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .accessibilityLabel(playback.isPlaying(song) ? "Pause" : "Play")
+                .accessibilityIdentifier("playerPlayPauseButton")
             }
             .fixedSize(horizontal: true, vertical: false)
             .frame(maxWidth: .infinity, alignment: .center)
