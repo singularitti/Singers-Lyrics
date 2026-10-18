@@ -8,6 +8,7 @@ struct LyricsEditorView: View {
 
     @Environment(MusicPlaybackModel.self) private var playback
     @Environment(AppModel.self) private var appModel
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.undoManager) private var undoManager
     @State private var selectedLineIDs: Set<UUID> = []
     @State private var selectionAnchor: UUID?
@@ -277,64 +278,71 @@ struct LyricsEditorView: View {
 
     @ViewBuilder
     private func lineCard(line: LyricLine, index: Int) -> some View {
-        HStack(alignment: .center, spacing: 6) {
-            VStack(alignment: .leading, spacing: 1) {
-                TextField(
-                    "Annotation / pronunciation",
-                    text: lineBinding(line.id, keyPath: \.annotation)
-                )
-                .textFieldStyle(.plain)
-                .font(.caption.italic())
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 2)
-                .focused($focusedAnnotationLineID, equals: line.id)
-                .simultaneousGesture(TapGesture().onEnded {
-                    activateAnnotationLine(line.id)
-                })
-                .accessibilityIdentifier("annotation-\(index)")
+        VStack(alignment: .leading, spacing: 1) {
+            TextField(
+                "Annotation / pronunciation",
+                text: lineBinding(line.id, keyPath: \.annotation)
+            )
+            .textFieldStyle(.plain)
+            .font(.caption.italic())
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 2)
+            .focused($focusedAnnotationLineID, equals: line.id)
+            .simultaneousGesture(TapGesture().onEnded {
+                activateAnnotationLine(line.id)
+            })
+            .accessibilityIdentifier("annotation-\(index)")
 
-                ZStack(alignment: .leading) {
-                    if line.lyric.plainText.isEmpty {
-                        Text("Lyric line…")
-                            .foregroundStyle(.tertiary)
-                            .padding(.leading, 2)
-                            .allowsHitTesting(false)
-                    }
-                    RichTextEditor(
-                        value: lyricBinding(line.id),
-                        lineID: line.id,
-                        accessibilityIdentifier: "lyricText-\(index)",
-                        editingContext: editingContext,
-                        fallbackFontFamily: fallbackFontFamily.isEmpty ? nil : fallbackFontFamily,
-                        focusRequested: requestedFocusLineID == line.id,
-                        preferredTypingStyle: requestedFocusLineID == line.id
-                            ? requestedTypingStyle
-                            : nil,
-                        onActivate: {
-                            activateEditingLine(line.id)
-                        },
-                        onFocusHandled: {
-                            requestedFocusLineID = nil
-                            requestedTypingStyle = nil
-                        },
-                        onSplit: { before, after, typingStyle in
-                            splitLine(
-                                line.id,
-                                before: before,
-                                after: after,
-                                typingStyle: typingStyle
-                            )
-                        }
-                    )
+            ZStack(alignment: .leading) {
+                if line.lyric.plainText.isEmpty {
+                    Text("Lyric line…")
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 2)
+                        .allowsHitTesting(false)
                 }
+                RichTextEditor(
+                    value: lyricBinding(line.id),
+                    lineID: line.id,
+                    accessibilityIdentifier: "lyricText-\(index)",
+                    editingContext: editingContext,
+                    fallbackFontFamily: fallbackFontFamily.isEmpty ? nil : fallbackFontFamily,
+                    focusRequested: requestedFocusLineID == line.id,
+                    preferredTypingStyle: requestedFocusLineID == line.id
+                        ? requestedTypingStyle
+                        : nil,
+                    onActivate: {
+                        activateEditingLine(line.id)
+                    },
+                    onFocusHandled: {
+                        requestedFocusLineID = nil
+                        requestedTypingStyle = nil
+                    },
+                    onSplit: { before, after, typingStyle in
+                        splitLine(
+                            line.id,
+                            before: before,
+                            after: after,
+                            typingStyle: typingStyle
+                        )
+                    }
+                )
             }
-
+        }
+        // Let lyrics use the full row width; only the timestamp gets a translucent backing.
+        .overlay(alignment: .trailing) {
             Text(preciseTime(line.timestampSeconds))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(line.timestampSeconds == nil ? .tertiary : .secondary)
-                .frame(width: 64, alignment: .trailing)
+                .fixedSize()
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(
+                    Color(nsColor: .controlBackgroundColor)
+                        .opacity(colorScheme == .light ? 0.9 : 0.55),
+                    in: RoundedRectangle(cornerRadius: 5)
+                )
                 .contentShape(Rectangle())
                 .onTapGesture {
                     selectTimingLine(line.id, modifiers: NSEvent.modifierFlags)
@@ -342,7 +350,6 @@ struct LyricsEditorView: View {
                 .accessibilityElement()
                 .accessibilityLabel(formatTime(line.timestampSeconds))
                 .accessibilityIdentifier("lineTime-\(index)")
-
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
