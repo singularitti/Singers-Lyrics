@@ -105,25 +105,25 @@ struct LibrarySongRow: View {
 
     private var albumFont: Font {
         #if os(macOS)
-        .system(size: 11, weight: .medium)
+        .system(size: artworkSize == .small ? 10 : 11, weight: .medium)
         #else
-        .caption.weight(.medium)
+        artworkSize == .small ? .caption2.weight(.medium) : .caption.weight(.medium)
         #endif
     }
 
     private var titleFont: Font {
         #if os(macOS)
-        .system(size: 17, weight: .semibold)
+        .system(size: artworkSize == .small ? 14 : 17, weight: .semibold)
         #else
-        .headline
+        artworkSize == .small ? .subheadline.weight(.semibold) : .headline
         #endif
     }
 
     private var artistFont: Font {
         #if os(macOS)
-        .system(size: 12)
+        .system(size: artworkSize == .large ? 12 : 11)
         #else
-        .subheadline
+        artworkSize == .large ? .subheadline : .footnote
         #endif
     }
 }
