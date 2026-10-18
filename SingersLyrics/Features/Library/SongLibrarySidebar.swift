@@ -250,6 +250,10 @@ private struct LibrarySearchField: View {
 
             TextField("Search songs and lyrics", text: $text)
                 .textFieldStyle(.plain)
+                .lineLimit(1)
+                // Keep the native editor's text and placeholder from being
+                // compressed vertically when the search header is laid out.
+                .frame(height: 22)
                 .focused($isFocused)
                 .accessibilityLabel("Search Songs")
                 .accessibilityHint("Search titles, singers, albums, lyrics, annotations, and tags")
