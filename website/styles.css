@@ -91,7 +91,7 @@ figcaption { color: var(--muted); font-size: 12px; line-height: 1.7; }
 .device-index { position: absolute; left: 24px; top: 24px; font-size: 9px; font-weight: 650; letter-spacing: 1.5px; color: #63745c; z-index: 1; }
 .phone-orbit { position: absolute; width: 650px; height: 650px; border: 1px solid #f5f7f0; border-radius: 50%; top: 210px; }
 .phone-orbit::after { content: ""; position: absolute; inset: 40px; border: 1px solid #f5f7f0; border-radius: 50%; }
-.phone-frame { max-width: 250px; border: 6px solid #283235; border-radius: 25px; background: #283235; box-shadow: 12px 24px 40px #3e514027, 0 0 0 1px #67736a; transform: rotate(-3deg); transition: transform .35s; overflow: hidden; }
+.phone-frame { width: 250px; max-width: 100%; border: 6px solid #283235; border-radius: 25px; background: #283235; box-shadow: 12px 24px 40px #3e514027, 0 0 0 1px #67736a; transform: rotate(-3deg); transition: transform .35s; overflow: hidden; }
 .phone-frame:hover { transform: rotate(0); }
 .phone-frame img { width: 100%; border-radius: 18px; }
 .phone-frame .zoom-hint { right: 10px; bottom: 12px; }
