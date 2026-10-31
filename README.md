@@ -2,6 +2,8 @@
 
 Prepare, synchronize, and follow lyrics on Mac, iPhone, and iPad.
 
+[Explore the app showcase](https://singularitti.github.io/Singers-Lyrics/) · [Download for Mac](https://github.com/singularitti/Singers-Lyrics/releases/latest)
+
 ## Why Singers Lyrics
 
 Singers Lyrics brings formatted lyrics, annotations, and song timing into one native workspace. Edit while listening to Apple Music, then switch to the player to follow the lyrics during practice. Your library works locally, with optional iCloud synchronization between Mac, iPhone, and iPad.
