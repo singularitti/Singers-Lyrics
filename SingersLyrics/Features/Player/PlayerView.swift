@@ -2,10 +2,6 @@ import AppKit
 import SwiftUI
 
 enum PlayerTypography {
-    static func annotationSize(for lyricSize: Double) -> CGFloat {
-        CGFloat(lyricSize) * 0.5
-    }
-
     static func titleSize(for lyricSize: Double) -> CGFloat {
         CGFloat(lyricSize) * 1.35
     }
@@ -37,7 +33,6 @@ struct PlayerView: View {
 
     private var displayedLyricSize: Double { magnifiedLyricSize(lyricMagnification ?? 1) }
     private var lyricSpacing: PlayerLyricSpacing { PlayerLyricSpacing(fontSize: CGFloat(displayedLyricSize)) }
-    private var annotationSize: CGFloat { PlayerTypography.annotationSize(for: displayedLyricSize) }
     private var titleSize: CGFloat { PlayerTypography.titleSize(for: displayedLyricSize) }
     private var artistSize: CGFloat { PlayerTypography.artistSize(for: displayedLyricSize) }
     private var hasTiming: Bool { song.lines.contains { $0.timestampSeconds != nil } }
@@ -309,7 +304,7 @@ struct PlayerView: View {
                 PlayerLyricBlockLayout(spacing: 4) {
                     if !line.annotation.isEmpty {
                         Text(line.annotation)
-                            .font(.system(size: annotationSize).italic())
+                            .font(LyricTypography.annotationFont(for: CGFloat(displayedLyricSize)))
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)

@@ -34,6 +34,7 @@ struct LyricsEditorView: View {
 
     private let delayOptions = [0.0, 0.2, 0.3, 0.5, 1.0]
     private let lineControlOverlap = 10.0
+    private let lyricFontSize = LyricTypography.editorLyricSize
 
     var body: some View {
         VStack(spacing: 0) {
@@ -284,11 +285,11 @@ struct LyricsEditorView: View {
                 text: lineBinding(line.id, keyPath: \.annotation)
             )
             .textFieldStyle(.plain)
-            .font(.caption.italic())
+            .font(LyricTypography.annotationFont(for: lyricFontSize))
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 2)
+            .padding(.horizontal, LyricTypography.editorTextInset)
             .focused($focusedAnnotationLineID, equals: line.id)
             .simultaneousGesture(TapGesture().onEnded {
                 activateAnnotationLine(line.id)
@@ -298,8 +299,9 @@ struct LyricsEditorView: View {
             ZStack(alignment: .leading) {
                 if line.lyric.plainText.isEmpty {
                     Text("Lyric line…")
+                        .font(.system(size: lyricFontSize))
                         .foregroundStyle(.tertiary)
-                        .padding(.leading, 2)
+                        .padding(.leading, LyricTypography.editorTextInset)
                         .allowsHitTesting(false)
                 }
                 RichTextEditor(
@@ -308,6 +310,7 @@ struct LyricsEditorView: View {
                     accessibilityIdentifier: "lyricText-\(index)",
                     editingContext: editingContext,
                     fallbackFontFamily: fallbackFontFamily.isEmpty ? nil : fallbackFontFamily,
+                    fontSize: lyricFontSize,
                     focusRequested: requestedFocusLineID == line.id,
                     preferredTypingStyle: requestedFocusLineID == line.id
                         ? requestedTypingStyle

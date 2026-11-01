@@ -250,7 +250,7 @@ final class RichTextEditingContext {
     ) -> [EffectiveFontSegment] {
         if range.length == 0 {
             let font = textView.typingAttributes[.font] as? NSFont
-                ?? NSFont.systemFont(ofSize: 17)
+                ?? NSFont.systemFont(ofSize: LyricTypography.editorLyricSize)
             return [EffectiveFontSegment(range: range, font: font)]
         }
 
@@ -270,7 +270,7 @@ final class RichTextEditingContext {
                 .font,
                 at: characterNSRange.location,
                 effectiveRange: nil
-            ) as? NSFont ?? NSFont.systemFont(ofSize: 17)
+            ) as? NSFont ?? NSFont.systemFont(ofSize: LyricTypography.editorLyricSize)
             let resolved = CTFontCreateForString(
                 nominalFont as CTFont,
                 string as CFString,
@@ -303,7 +303,7 @@ final class RichTextEditingContext {
         if range.length == 0 {
             let current = segments.first?.font
                 ?? textView.typingAttributes[.font] as? NSFont
-                ?? NSFont.systemFont(ofSize: 17)
+                ?? NSFont.systemFont(ofSize: LyricTypography.editorLyricSize)
             textView.typingAttributes[.font] = transform(current)
             return
         }
@@ -322,7 +322,8 @@ final class RichTextEditingContext {
         transform: (NSFont) -> NSFont
     ) {
         if range.length == 0 {
-            let current = textView.typingAttributes[.font] as? NSFont ?? NSFont.systemFont(ofSize: 17)
+            let current = textView.typingAttributes[.font] as? NSFont
+                ?? NSFont.systemFont(ofSize: LyricTypography.editorLyricSize)
             textView.typingAttributes[.font] = transform(current)
             return
         }
@@ -330,7 +331,7 @@ final class RichTextEditingContext {
         guard let storage = textView.textStorage else { return }
         storage.beginEditing()
         storage.enumerateAttribute(.font, in: range) { value, subrange, _ in
-            let font = value as? NSFont ?? NSFont.systemFont(ofSize: 17)
+            let font = value as? NSFont ?? NSFont.systemFont(ofSize: LyricTypography.editorLyricSize)
             storage.addAttribute(.font, value: transform(font), range: subrange)
         }
         storage.endEditing()
@@ -338,12 +339,13 @@ final class RichTextEditingContext {
 
     private func fonts(in textView: NSTextView, range: NSRange) -> [NSFont] {
         if range.length == 0 {
-            return [textView.typingAttributes[.font] as? NSFont ?? NSFont.systemFont(ofSize: 17)]
+            return [textView.typingAttributes[.font] as? NSFont
+                ?? NSFont.systemFont(ofSize: LyricTypography.editorLyricSize)]
         }
         guard let storage = textView.textStorage else { return [] }
         var result: [NSFont] = []
         storage.enumerateAttribute(.font, in: range) { value, _, _ in
-            result.append(value as? NSFont ?? NSFont.systemFont(ofSize: 17))
+            result.append(value as? NSFont ?? NSFont.systemFont(ofSize: LyricTypography.editorLyricSize))
         }
         return result
     }
@@ -429,7 +431,7 @@ final class RichTextEditingContext {
         }
         let font = effectiveFontSegments(in: textView, range: range).first?.font
             ?? attributes[.font] as? NSFont
-            ?? NSFont.systemFont(ofSize: 17)
+            ?? NSFont.systemFont(ofSize: LyricTypography.editorLyricSize)
         if attributes[.singersLyricsAdaptiveForeground] != nil {
             selectedTextColor = nil
         } else if let storedHex = attributes[.singersLyricsStoredForeground] as? String {

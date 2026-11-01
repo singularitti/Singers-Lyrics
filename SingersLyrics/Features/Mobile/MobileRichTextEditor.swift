@@ -34,7 +34,12 @@ struct MobileRichTextEditor: UIViewRepresentable {
         }
         textView.backgroundColor = .clear
         textView.isScrollEnabled = false
-        textView.textContainerInset = UIEdgeInsets(top: 4, left: 1, bottom: 4, right: 1)
+        textView.textContainerInset = UIEdgeInsets(
+            top: 4,
+            left: LyricTypography.editorTextInset,
+            bottom: 4,
+            right: LyricTypography.editorTextInset
+        )
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainer.widthTracksTextView = true
         textView.adjustsFontForContentSizeCategory = false

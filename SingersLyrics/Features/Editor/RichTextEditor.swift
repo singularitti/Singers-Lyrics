@@ -9,6 +9,7 @@ struct RichTextEditor: NSViewRepresentable {
     let accessibilityIdentifier: String
     let editingContext: RichTextEditingContext
     let fallbackFontFamily: String?
+    let fontSize: CGFloat
     let focusRequested: Bool
     let preferredTypingStyle: TextStyle?
     let onActivate: () -> Void
@@ -43,7 +44,7 @@ struct RichTextEditor: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 2, height: 3)
+        textView.textContainerInset = NSSize(width: LyricTypography.editorTextInset, height: 3)
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
@@ -54,12 +55,14 @@ struct RichTextEditor: NSViewRepresentable {
         textView.textStorage?.setAttributedString(
             AttributedTextCodec.makeAttributedString(
                 from: value,
+                size: fontSize,
                 fallbackFontFamily: fallbackFontFamily
             )
         )
         if value.plainText.isEmpty {
             textView.typingAttributes = AttributedTextCodec.makeAttributes(
                 from: preferredTypingStyle ?? .plain,
+                size: fontSize,
                 fallbackFontFamily: fallbackFontFamily
             )
         }
@@ -106,6 +109,7 @@ struct RichTextEditor: NSViewRepresentable {
                    coordinator.parent.value.plainText.isEmpty {
                     textView.typingAttributes = AttributedTextCodec.makeAttributes(
                         from: preferredTypingStyle,
+                        size: coordinator.parent.fontSize,
                         fallbackFontFamily: coordinator.parent.fallbackFontFamily
                     )
                     coordinator.parent.editingContext.selectionDidChange(in: textView)
@@ -120,7 +124,10 @@ struct RichTextEditor: NSViewRepresentable {
         let proposedWidth = proposal.width ?? 400
         let width = proposedWidth.isFinite ? max(100, proposedWidth) : 400
         textView.frame.size.width = width
-        textView.textContainer?.containerSize = NSSize(width: width - 4, height: .greatestFiniteMagnitude)
+        textView.textContainer?.containerSize = NSSize(
+            width: width - textView.textContainerInset.width * 2,
+            height: .greatestFiniteMagnitude
+        )
         textView.layoutManager?.ensureLayout(for: textView.textContainer!)
         let used = textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? 24
         return CGSize(width: width, height: max(30, used + textView.textContainerInset.height * 2))
@@ -153,12 +160,14 @@ struct RichTextEditor: NSViewRepresentable {
             textView.textStorage?.setAttributedString(
                 AttributedTextCodec.makeAttributedString(
                     from: parent.value,
+                    size: parent.fontSize,
                     fallbackFontFamily: parent.fallbackFontFamily
                 )
             )
             if parent.value.plainText.isEmpty {
                 textView.typingAttributes = AttributedTextCodec.makeAttributes(
                     from: parent.preferredTypingStyle ?? .plain,
+                    size: parent.fontSize,
                     fallbackFontFamily: parent.fallbackFontFamily
                 )
             }

@@ -160,7 +160,7 @@ struct MobilePlayerView: View {
             PlayerLyricBlockLayout(spacing: 6) {
                 if !line.annotation.isEmpty {
                     Text(line.annotation)
-                        .font(.system(size: fontSize * 0.5).italic())
+                        .font(LyricTypography.annotationFont(for: fontSize))
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
                 }

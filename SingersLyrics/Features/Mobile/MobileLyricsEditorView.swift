@@ -7,7 +7,7 @@ struct MobileLyricsEditorView: View {
     @Environment(MusicPlaybackModel.self) private var playback
     @Environment(AppModel.self) private var model
     @AppStorage(PreferenceKey.defaultLyricsFontFamily) private var fallbackFontFamily = ""
-    @ScaledMetric(relativeTo: .body) private var lyricFontSize: CGFloat = 18
+    @ScaledMetric(relativeTo: .body) private var lyricFontSize = LyricTypography.editorLyricSize
     @State private var selectedLineID: UUID?
     @State private var expandedTakesLineID: UUID?
     @State private var editingContext = MobileEditingContext()
@@ -19,6 +19,8 @@ struct MobileLyricsEditorView: View {
     @State private var transportActionInProgress = false
     @State private var fineAdjustment: FineTimingAdjustment?
     @FocusState private var annotationFocus: UUID?
+
+    private let lyricHorizontalPadding: CGFloat = 12
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -87,27 +89,23 @@ struct MobileLyricsEditorView: View {
 
     private func lineCard(_ line: LyricLine, index: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text("\(index + 1)")
-                    .font(.caption.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(selectedLineID == line.id ? Color.accentColor : Color.secondary)
-                    .frame(minWidth: 30, minHeight: 36)
-                    .accessibilityHidden(true)
-
-                TextField("Annotation (optional)", text: annotationBinding(for: line.id))
-                    .font(.subheadline)
-                    .textFieldStyle(.plain)
-                    .focused($annotationFocus, equals: line.id)
-                    .onChange(of: annotationFocus) { _, focusedID in
-                        if focusedID == line.id {
-                            selectedLineID = line.id
-                            lyricEditorIsActive = false
-                        }
+            TextField("Annotation (optional)", text: annotationBinding(for: line.id))
+                .font(LyricTypography.annotationFont(for: lyricFontSize))
+                .foregroundStyle(.secondary)
+                .textFieldStyle(.plain)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, lyricHorizontalPadding + LyricTypography.editorTextInset)
+                .frame(minHeight: 44)
+                .focused($annotationFocus, equals: line.id)
+                .onChange(of: annotationFocus) { _, focusedID in
+                    if focusedID == line.id {
+                        selectedLineID = line.id
+                        lyricEditorIsActive = false
                     }
-                    .submitLabel(.done)
-                    .onSubmit { annotationFocus = nil }
-                    .accessibilityLabel("Line \(index + 1) annotation")
-            }
+                }
+                .submitLabel(.done)
+                .onSubmit { annotationFocus = nil }
+                .accessibilityLabel("Line \(index + 1) annotation")
 
             MobileRichTextEditor(
                 value: lyricBinding(for: line.id),
@@ -129,7 +127,7 @@ struct MobileLyricsEditorView: View {
                 }
             )
             .frame(minHeight: 52)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, lyricHorizontalPadding)
             .padding(.vertical, 7)
             .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
             .overlay {
@@ -138,7 +136,7 @@ struct MobileLyricsEditorView: View {
             }
             .accessibilityIdentifier("mobileLyricEditor-\(index)")
 
-            // The timestamp and line menu share the voice row, so the annotation gets the full width.
+            // Keep line numbers and controls out of the shared annotation/lyric text origin.
             MobileLineRecordingControls(
                 songID: song.id,
                 line: line,
@@ -151,6 +149,12 @@ struct MobileLyricsEditorView: View {
                 onRename: { renameRecording($0, on: line.id, to: $1) },
                 onDelete: { deleteRecording($0, from: line.id) }
             ) {
+                Text("\(index + 1)")
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(selectedLineID == line.id ? Color.accentColor : Color.secondary)
+                    .frame(minWidth: 30, minHeight: 36)
+                    .accessibilityHidden(true)
+
                 Button { selectedLineID = line.id } label: {
                     Text(timestampText(line.timestampSeconds))
                         .font(.caption.monospacedDigit().weight(.medium))
